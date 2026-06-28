@@ -1,51 +1,73 @@
-# Blog Project
+# Blog
 
-Welcome to the **Flask Blog Project**! 🚀 This is a simple blogging platform built using Flask, allowing users to create, read, and manage blog posts.
+A hacker-themed blog platform built with **Next.js 16** (App Router), migrated from Flask.
+
+## Tech Stack
+
+- **Framework**: Next.js 16 (App Router)
+- **Language**: TypeScript 6
+- **UI**: React 19
+- **Database**: Supabase (PostgreSQL + Storage)
+- **Video**: HLS.js with external ffmpeg transcoding service
+- **Image Viewer**: Viewer.js
+
+## Getting Started
+
+```bash
+npm install
+```
+
+Copy `.env.local.example` to `.env.local` and fill in your Supabase credentials:
+
+```
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your-password
+SESSION_SECRET=random-secret
+```
+
+### Development
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+### Production
+
+```bash
+npm run build
+npm start
+```
 
 ## Features
-- 📝 Create and manage blog posts
-- 📅 Timestamped posts
-- 🖼️ Image upload support
-- 🔒 Admin login for secure access
-- 🎨 Hacker-themed dark UI
 
----
+- Admin authentication with session cookies
+- Create, edit, delete blog posts
+- Image upload & lightbox viewer
+- Video upload with HLS adaptive streaming
+- Infinite scroll pagination
+- Date-based post filtering
+- Hacker-themed dark UI
+- Responsive design
 
-## Installation & Setup
-```sh
- git clone https://github.com/Alph702/Blog.git
- cd Blog
+## Project Structure
+
+```
+app/            # Next.js App Router pages & API routes
+components/     # React components (PostCard, VideoPlayer, etc.)
+lib/            # Shared utilities (auth, posts, supabase client)
+public/         # Static assets (CSS, JS, images, SVGs)
+types/          # TypeScript type definitions
 ```
 
-```sh
- pip install uv
-```
+## Video Processing
 
-**For dev**:
-```sh
- uv sync
-```
-**For use**:
-```sh
- uv sync --no-dev
-```
+Videos are transcoded to HLS by an external ffmpeg microservice. See [ffmpeg_microservice.md](ffmpeg_microservice.md) for details.
 
-```sh
- uv run app.py
-```
-Your blog should be running at **http://127.0.0.1:8080/** 🎉
+## License
 
-## Tests
-
-```sh
- uv run pytest
-```
-
-## Contributing
-
-Feel free to fork the repository, submit issues, or contribute to improve this project. 🚀
-
-## Development Documentation
-- [FFmpeg Microservice Documentation](ffmpeg_microservice.md)
-
-This project is open-source and licensed under the **MIT License**.
+MIT

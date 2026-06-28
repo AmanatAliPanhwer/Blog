@@ -1,12 +1,27 @@
-GEMINI.md
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.python-version
+
+# Node
+/node_modules/
+.next/
+
+# Env
+.env.local
 .env
-.venv
-static/uploads/
-__pycache__ 
+.env.*.local
 
-uploads/*
-outputs/*
-tmp/*
+# IDE
+.vscode/
+.idea/
 
-.pytest_cache/
-.ruff_cache/
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads
+static/uploads/*
+!static/uploads/.gitkeep
