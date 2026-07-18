@@ -120,6 +120,7 @@ export default function EditPostClient({ post }: { post: Post }) {
           type="text"
           name="title"
           placeholder="Title"
+          required
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
