@@ -22,8 +22,8 @@ export async function POST(req: NextRequest) {
 
   const { title, content, imageUrl, videoId } = body;
 
-  if (!title || !content) {
-    return NextResponse.json({ error: "Title and content are required", received: { title, content } }, { status: 400 });
+  if (!content) {
+    return NextResponse.json({ error: "Content is required" }, { status: 400 });
   }
 
   try {
