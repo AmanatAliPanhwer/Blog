@@ -160,6 +160,8 @@ export async function getPostById(postId: number): Promise<Post | null> {
 }
 
 export async function createPost(title: string, content: string, imageUrl: string | null, videoId: number | null): Promise<void> {
+  title = title || "";
+  content = content || "";
   let maxAttempts = 5;
   let attempt = 0;
   while (attempt < maxAttempts) {

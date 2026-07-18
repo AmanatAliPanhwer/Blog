@@ -15,8 +15,8 @@ async function parsePostBody(req: NextRequest): Promise<PostBody> {
   if (contentType.includes("multipart/form-data")) {
     const formData = await req.formData();
     return {
-      title: formData.get("title") as string,
-      content: formData.get("content") as string,
+      title: (formData.get("title") as string || "").trim(),
+      content: (formData.get("content") as string || "").trim(),
       imageFile: formData.get("image") as File | null,
       videoFile: formData.get("video") as File | null,
     };
@@ -24,8 +24,8 @@ async function parsePostBody(req: NextRequest): Promise<PostBody> {
 
   const body = await req.json();
   return {
-    title: body.title,
-    content: body.content,
+    title: (body.title || "").trim(),
+    content: (body.content || "").trim(),
     imageFile: null,
     videoFile: null,
   };
