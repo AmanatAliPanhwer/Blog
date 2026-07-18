@@ -21,15 +21,34 @@ export default function NewPostClient() {
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData();
-    formData.append("title", title);
-    formData.append("content", content);
-    if (imageFile) formData.append("image", imageFile);
-    if (videoFile) formData.append("video", videoFile);
+
+    let imageUrl: string | null = null;
+    let videoId: number | null = null;
+
+    if (imageFile) {
+      const fd = new FormData();
+      fd.append("file", imageFile);
+      fd.append("type", "image");
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      if (!res.ok) return;
+      const data = await res.json();
+      imageUrl = data.imageUrl;
+    }
+
+    if (videoFile) {
+      const fd = new FormData();
+      fd.append("file", videoFile);
+      fd.append("type", "video");
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      if (!res.ok) return;
+      const data = await res.json();
+      videoId = data.videoId;
+    }
 
     const res = await fetch("/api/posts", {
       method: "POST",
-      body: formData,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, content, imageUrl, videoId }),
     });
 
     if (res.ok) {
@@ -83,7 +102,7 @@ export default function NewPostClient() {
       <button className="full-screen-button" onClick={toggleFullScreen}>
         <img src="/static/full-screen.svg" alt="Full Screen" />
       </button>
-      <form className={`form ${isFullScreen ? "full-screen" : ""}`} method="POST" encType="multipart/form-data" onSubmit={handleSubmit}>
+      <form className={`form ${isFullScreen ? "full-screen" : ""}`} onSubmit={handleSubmit}>
         <div id="popup" className={`popup ${isFullScreen ? "show" : ""}`}>
           press <kbd>ESC</kbd> to exit full screen
         </div>
