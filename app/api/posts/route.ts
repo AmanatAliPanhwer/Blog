@@ -14,15 +14,16 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const body = await req.json();
   const session = await getSession();
   if (session !== "true") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { title, content, imageUrl, videoId } = await req.json();
+  const { title, content, imageUrl, videoId } = body;
 
   if (!title || !content) {
-    return NextResponse.json({ error: "Title and content are required" }, { status: 400 });
+    return NextResponse.json({ error: "Title and content are required", received: { title, content } }, { status: 400 });
   }
 
   try {
@@ -45,7 +46,8 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Invalid post ID" }, { status: 400 });
   }
 
-  const { title, content, imageUrl, videoId } = await req.json();
+  const body = await req.json();
+  const { title, content, imageUrl, videoId } = body;
 
   try {
     await updatePost(postId, title || "", content || "", imageUrl || null, videoId || null);
