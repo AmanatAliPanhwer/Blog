@@ -1,11 +1,19 @@
 "use client";
 
-import { Post } from "@/types";
-import dynamic from "next/dynamic";
-import ImageLightbox from "./ImageLightbox";
-import { stripScripts } from "@/lib/posts";
-
-const VideoPlayer = dynamic(() => import("@/components/VideoPlayer"), { ssr: false });
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Clock, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import type { Post } from "@/types";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import SupabaseImage from "@/components/SupabaseImage";
+import VideoThumb from "@/components/VideoThumb";
 
 interface PostCardProps {
   post: Post;
@@ -13,37 +21,78 @@ interface PostCardProps {
 }
 
 export default function PostCard({ post, isAdmin }: PostCardProps) {
-  const handleVideoClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const router = useRouter();
+
+  const handleDelete = () => {
+    if (confirm("Delete this note? This cannot be undone.")) {
+      router.push(`/delete/${post.id}`);
+    }
   };
 
   return (
-    <div className="post">
-      <a href={`/post/${post.id}`} className="post-button">
-        <h1 className="Heding">{post.title}</h1>
-        <p className="text" dangerouslySetInnerHTML={{ __html: stripScripts(post.content) }} />
-        {post.image && (
-          <>
-            <div onClick={(e) => e.stopPropagation()}>
-              <ImageLightbox src={post.image} />
-            </div>
-            <br />
-          </>
-        )}
-        {post.video && (
-          <div onClick={handleVideoClick}>
-            <VideoPlayer video={post.video} />
+    <Card className="overflow-hidden rounded-[10px] border-b border-[#fffaff] bg-card shadow-[0_4px_6px_rgba(0,255,0,0.3)]">
+      <Link
+        href={`/post/${post.id}`}
+        className="group block p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {post.title ? (
+          <h2 className="font-heading text-3xl font-bold text-primary">
+            {post.title}
+          </h2>
+        ) : null}
+
+        <div
+          className="post-markup post-markup--clamp mt-1"
+          dangerouslySetInnerHTML={{ __html: post.content_safe || post.content }}
+        />
+
+        {post.image ? (
+          <div className="relative mt-3 aspect-video w-full overflow-hidden rounded-lg border border-border">
+            <SupabaseImage
+              src={post.image}
+              alt=""
+              sizes="(max-width: 768px) 100vw, 640px"
+              className="transition-transform duration-300 group-hover:scale-[1.02]"
+            />
           </div>
-        )}
-        <small>Posted on {post.formatted_timestamp || ""}</small>
-        <br />
-      </a>
-      {isAdmin && (
-        <div style={{ marginTop: 8 }}>
-          <a style={{ paddingRight: 5 }} href={`/edit/${post.id}`}>Edit</a>
-          <a href={`/delete/${post.id}`}>Delete</a>
+        ) : null}
+
+        {post.video ? <VideoThumb video={post.video} className="mt-3" /> : null}
+
+        <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Clock className="size-3" />
+          {post.formatted_timestamp || "—"}
+        </p>
+      </Link>
+
+      {isAdmin ? (
+        <div className="flex items-center justify-between border-t border-border/60 px-3 py-1.5">
+          <span className="px-1 text-xs text-muted-foreground">#{post.id}</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${post.title || "post"}`}>
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem asChild>
+                <Link href={`/edit/${post.id}`}>
+                  <Pencil />
+                  Edit
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={handleDelete}
+                className="cursor-pointer"
+              >
+                <Trash2 />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-      )}
-    </div>
+      ) : null}
+    </Card>
   );
 }

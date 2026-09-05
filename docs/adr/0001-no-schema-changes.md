@@ -1,0 +1,5 @@
+# Keep the database schema frozen through the refactor
+
+The blog is being fully rebuilt (design, performance, UX), but its Supabase schema stays untouched: no new columns, tables, indexes, or id-sequence changes. Several inviting fixes — tags, markdown storage, replacing the manual `max(id)+1` insert-with-retry hack, adding a timestamp index — all require schema changes, and for a short-post personal journal we judged the migration cost and deployment friction not worth it. Code-level solutions cover the intended wins instead: HTML authoring stays, search runs over existing columns, and query/caching performance work happens in the app.
+
+Consequences: post creation keeps its duplicate-key retry loop; search is at request time over the posts table; feed performance relies on React-level caching and query batching. This is a deliberate "no": a future reader may be tempted to "fix" the id hack or add an index while here — don't, unless the schema constraint is lifted first.

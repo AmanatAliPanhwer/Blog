@@ -1,14 +1,22 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Lock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 
 export default function LoginPage() {
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setSubmitting(true);
+    setError("");
     const form = e.currentTarget;
     const data = {
       username: (form.elements.namedItem("username") as HTMLInputElement).value,
@@ -23,41 +31,53 @@ export default function LoginPage() {
     });
 
     if (res.ok) {
-      localStorage.setItem("isLoggedIn", "true");
+      toast.success("Welcome back");
       router.push("/");
       router.refresh();
     } else {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({}));
       setError(err.error || "Invalid credentials");
+      setSubmitting(false);
     }
   };
 
   return (
-    <div className="login-container" style={{
-      backgroundColor: "#333", padding: 20, borderRadius: 10,
-      boxShadow: "0px 0px 10px rgba(255, 255, 255, 0.2)", width: 300,
-      textAlign: "center", position: "absolute", top: "50%", left: "50%",
-      transform: "translate(-50%, -50%)"
-    }}>
-      <h2 style={{ marginBottom: 20 }}>Admin Login</h2>
-      {error && <p style={{ color: "red", marginBottom: 10 }}>{error}</p>}
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: 15 }}>
-          <label style={{ display: "block", textAlign: "left", fontSize: 14 }}>Username:</label>
-          <input type="text" name="username" required style={{ width: "100%", padding: 8, borderRadius: 5, fontSize: 16 }} />
+    <div className="mx-auto flex max-w-sm flex-col items-stretch gap-4 rounded-[10px] border border-[#fffaff]/30 bg-card p-6 shadow-[0_4px_8px_rgba(0,255,0,0.4)]">
+      <div className="flex flex-col items-center gap-2 text-center">
+        <span className="flex size-10 items-center justify-center rounded-lg border border-border bg-background text-primary">
+          <Lock className="size-5" />
+        </span>
+        <h1 className="font-heading text-3xl font-bold tracking-tight text-primary">
+          Admin Login
+        </h1>
+        <p className="font-sans text-sm text-muted-foreground">restricted area</p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="username">Username</Label>
+          <Input id="username" name="username" type="text" required autoFocus />
         </div>
-        <div style={{ marginBottom: 15 }}>
-          <label style={{ display: "block", textAlign: "left", fontSize: 14 }}>Password:</label>
-          <input type="password" name="password" required style={{ width: "100%", padding: 8, borderRadius: 5, fontSize: 16 }} />
+        <div className="space-y-1.5">
+          <Label htmlFor="password">Password</Label>
+          <Input id="password" name="password" type="password" required />
         </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 15 }}>
-          <input type="checkbox" name="remember" id="remember" style={{ width: "auto", marginRight: 10 }} />
-          <label htmlFor="remember" style={{ margin: 0 }}>Remember Me</label>
-        </div>
-        <button type="submit" className="login-btn" style={{
-          backgroundColor: "#007bff", color: "white", border: "none",
-          padding: 10, width: "100%", borderRadius: 5, cursor: "pointer", fontSize: 16
-        }}>Login</button>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            name="remember"
+            className="size-4 accent-primary"
+          />
+          Remember me
+        </label>
+
+        {error ? (
+          <p className="text-sm text-destructive">{error}</p>
+        ) : null}
+
+        <Button type="submit" disabled={submitting} className="w-full">
+          {submitting ? "Signing in…" : "Sign in"}
+        </Button>
       </form>
     </div>
   );

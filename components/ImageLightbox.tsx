@@ -31,7 +31,7 @@ export default function ImageLightbox({ src, alt }: ImageLightboxProps) {
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     const gallery = galleryRef.current;
     if (!gallery) return;
 
@@ -39,7 +39,10 @@ export default function ImageLightbox({ src, alt }: ImageLightboxProps) {
     if (!img) return;
 
     // Use global Viewer from the loaded script
-    const Viewer = (window as unknown as Record<string, unknown>).Viewer as new (el: HTMLElement, opts?: Record<string, unknown>) => { show: () => void };
+    const Viewer = (window as unknown as Record<string, unknown>).Viewer as new (
+      el: HTMLElement,
+      opts?: Record<string, unknown>
+    ) => { show: () => void };
     if (typeof Viewer !== "function") {
       // Viewer not loaded yet, open in new tab as fallback
       window.open(src, "_blank");
@@ -56,7 +59,13 @@ export default function ImageLightbox({ src, alt }: ImageLightboxProps) {
 
   return (
     <div className="gallery" ref={galleryRef}>
-      <img src={src} alt={alt || "Post Image"} className="image" loading="lazy" onClick={handleClick} />
+      <img
+        src={src}
+        alt={alt || "Post Image"}
+        className="image w-full cursor-zoom-in rounded-[10px]"
+        loading="lazy"
+        onClick={handleClick}
+      />
     </div>
   );
 }

@@ -1,29 +1,26 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import "./globals.css";
+import { getSession } from "@/lib/auth";
+import SiteHeader from "@/components/SiteHeader";
+import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
-  title: "My Blog",
-  description: "A hacker-themed blog platform",
+  title: {
+    default: "My Blog",
+    template: "%s · My Blog",
+  },
+  description: "A personal work journal.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const session = await getSession();
+
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <link rel="stylesheet" href="/static/css/style.css" />
-        <link rel="stylesheet" href="/static/css/video_controls.css" />
-        <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon" />
-        <link
-          rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.7/viewer.min.css"
-          crossOrigin="anonymous"
-          referrerPolicy="no-referrer"
-        />
-      </head>
-      <body suppressHydrationWarning>
-        {children}
-        <Script src="https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.7/viewer.min.js" />
+    <html lang="en">
+      <body className="min-h-dvh">
+        <SiteHeader isAdmin={session === "true"} />
+        <main className="mx-auto w-full max-w-3xl px-4 pt-10 pb-16">{children}</main>
+        <Toaster position="top-right" theme="dark" />
       </body>
     </html>
   );

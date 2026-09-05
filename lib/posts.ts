@@ -1,10 +1,10 @@
 import crypto from "crypto";
 import { getSupabaseClient, TIMESTAMP_FIELD, POSTS_PER_PAGE, BLOG_IMAGES_BUCKET, BLOG_VIDEOS_BUCKET } from "./supabase";
 import { Post, PostRaw, FilterParams } from "@/types";
+import { cache } from "react";
+import { sanitizePostHtml } from "./sanitize";
 
-export function stripScripts(html: string): string {
-  return html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
-}
+export { sanitizePostHtml };
 
 const SELECT_FIELDS = `id, title, content, image, ${TIMESTAMP_FIELD}, video_id`;
 
@@ -32,67 +32,91 @@ function getLocalTimestamp(): string {
   return local.toISOString().slice(0, 19).replace("T", " ");
 }
 
-export async function fetchVideoData(videoId: number | null): Promise<{ id: number; filename?: string; filepath?: string; status?: string; url?: string } | null> {
-  if (!videoId) return null;
+interface VideoInfo {
+  id: number;
+  filename?: string;
+  filepath?: string;
+  status?: string;
+  url?: string;
+}
+
+async function fetchVideosByIds(ids: number[]): Promise<Map<number, VideoInfo>> {
+  const map = new Map<number, VideoInfo>();
+  if (ids.length === 0) return map;
   try {
     const { data } = await getSupabaseClient()
       .from("videos")
       .select("id, filepath, filename, status")
-      .eq("id", videoId)
-      .single();
-    if (data) {
-      return {
-        id: data.id,
-        filename: data.filename,
-        filepath: data.filepath,
-        status: data.status,
-        url: data.filepath,
-      };
+      .in("id", ids);
+    for (const v of data || []) {
+      map.set(v.id, {
+        id: v.id,
+        filename: v.filename,
+        filepath: v.filepath,
+        status: v.status,
+        url: v.filepath,
+      });
     }
   } catch (e) {
-    console.error(`Error fetching video info for video_id=${videoId}:`, e);
+    console.error("Error fetching video info:", e);
   }
-  return null;
+  return map;
 }
 
-export async function enrichPost(post: PostRaw): Promise<Post> {
-  const ts = post[TIMESTAMP_FIELD] as string | null;
-  const videoId = post.video_id as number | null;
-  return {
-    id: post.id,
-    title: post.title,
-    content: post.content,
-    image: post.image,
-    video_id: videoId,
-    formatted_timestamp: formatTimestamp(ts),
-    video: videoId ? await fetchVideoData(videoId) : null,
-  };
+async function enrichPosts(rawPosts: PostRaw[]): Promise<Post[]> {
+  if (rawPosts.length === 0) return [];
+  const videoIds = [
+    ...new Set(
+      rawPosts
+        .map((p) => p.video_id as number | null)
+        .filter((id): id is number => !!id && !Number.isNaN(id))
+    ),
+  ];
+  const videos = await fetchVideosByIds(videoIds);
+
+  return rawPosts.map((post) => {
+    const ts = post[TIMESTAMP_FIELD] as string | null;
+    const videoId = post.video_id as number | null;
+    return {
+      id: post.id,
+      title: post.title,
+      content: post.content,
+      content_safe: sanitizePostHtml(post.content),
+      image: post.image,
+      video_id: videoId,
+      timestamp: ts ?? undefined,
+      formatted_timestamp: formatTimestamp(ts),
+      video: videoId ? videos.get(videoId) || null : null,
+    };
+  });
 }
 
-export async function getPosts(page: number = 1): Promise<{ posts: Post[]; has_next: boolean }> {
-  const offset = Math.max(0, (page - 1) * POSTS_PER_PAGE);
-
-  const { data } = await getSupabaseClient()
-    .from("posts")
-    .select(SELECT_FIELDS)
-    .order(TIMESTAMP_FIELD, { ascending: false })
-    .range(offset, offset + POSTS_PER_PAGE - 1);
-
-  const posts = await Promise.all((data || []).map(enrichPost));
-
-  const { data: nextData } = await getSupabaseClient()
-    .from("posts")
-    .select("id")
-    .order(TIMESTAMP_FIELD, { ascending: false })
-    .range(offset + POSTS_PER_PAGE, offset + POSTS_PER_PAGE);
-
-  return { posts, has_next: !!nextData?.length };
+async function enrichPost(post: PostRaw): Promise<Post> {
+  const [enriched] = await enrichPosts([post]);
+  return enriched;
 }
 
-export async function getFilteredPosts(params: FilterParams): Promise<Post[]> {
-  const { year, month, day } = params;
-  let query = getSupabaseClient().from("posts").select(SELECT_FIELDS);
+export interface FeedQuery {
+  page?: number;
+  q?: string;
+  year?: string | null;
+  month?: string | null;
+  day?: string | null;
+}
 
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (m) => `\\${m}`);
+}
+
+function applyFilters(
+  query: /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ any,
+  params: FilterParams & { q?: string }
+): typeof query {
+  const { year, month, day, q } = params;
+  if (q && q.trim()) {
+    const escaped = escapeLike(q.trim());
+    query = query.or(`title.ilike.%${escaped}%,content.ilike.%${escaped}%`);
+  }
   if (year && year !== "any") {
     query = query
       .gte(TIMESTAMP_FIELD, `${year}-01-01T00:00:00Z`)
@@ -125,13 +149,48 @@ export async function getFilteredPosts(params: FilterParams): Promise<Post[]> {
       .gte(TIMESTAMP_FIELD, `${cy}-${cm.padStart(2, "0")}-${day.padStart(2, "0")}T00:00:00Z`)
       .lt(TIMESTAMP_FIELD, `${ndYear}-${String(ndMonth).padStart(2, "0")}-${String(nd).padStart(2, "0")}T00:00:00Z`);
   }
-
-  const { data } = await query.order(TIMESTAMP_FIELD, { ascending: false });
-
-  return Promise.all((data || []).map(enrichPost));
+  return query;
 }
 
-export async function getFilterOptions(): Promise<{ years: string[]; months: string[]; days: string[] }> {
+/**
+ * Unified feed query: pagination + archive filter + search in one call.
+ * Only used from server components / route handlers.
+ */
+export const getFeed = cache(async (params: FeedQuery = {}): Promise<{ posts: Post[]; has_next: boolean }> => {
+  const page = Math.max(1, params.page || 1);
+  const offset = (page - 1) * POSTS_PER_PAGE;
+
+  const base = getSupabaseClient().from("posts").select(SELECT_FIELDS);
+  const filtered = applyFilters(base, {
+    q: params.q ?? undefined,
+    year: params.year ?? undefined,
+    month: params.month ?? undefined,
+    day: params.day ?? undefined,
+  });
+
+  const { data } = await filtered.order(TIMESTAMP_FIELD, { ascending: false }).range(offset, offset + POSTS_PER_PAGE - 1);
+  const { data: nextData } = await getSupabaseClient()
+    .from("posts")
+    .select("id")
+    .order(TIMESTAMP_FIELD, { ascending: false })
+    .range(offset + POSTS_PER_PAGE, offset + POSTS_PER_PAGE);
+
+  const posts = await enrichPosts(data || []);
+  return { posts, has_next: !!nextData?.length };
+});
+
+export const getPosts = cache(async (page: number = 1): Promise<{ posts: Post[]; has_next: boolean }> =>
+  getFeed({ page })
+);
+
+export const getFilteredPosts = cache(async (params: FilterParams & { q?: string }): Promise<Post[]> => {
+  const base = getSupabaseClient().from("posts").select(SELECT_FIELDS);
+  const filtered = applyFilters(base, params);
+  const { data } = await filtered.order(TIMESTAMP_FIELD, { ascending: false });
+  return enrichPosts(data || []);
+});
+
+export const getFilterOptions = cache(async (): Promise<{ years: string[]; months: string[]; days: string[] }> => {
   const { data } = await getSupabaseClient()
     .from("posts")
     .select(TIMESTAMP_FIELD)
@@ -146,9 +205,9 @@ export async function getFilterOptions(): Promise<{ years: string[]; months: str
   const days = Array.from(new Set(vals.map((v) => String(new Date(v).getDate()).padStart(2, "0")))).sort();
 
   return { years, months, days };
-}
+});
 
-export async function getPostById(postId: number): Promise<Post | null> {
+export const getPostById = cache(async (postId: number): Promise<Post | null> => {
   const { data } = await getSupabaseClient()
     .from("posts")
     .select(SELECT_FIELDS)
@@ -157,7 +216,7 @@ export async function getPostById(postId: number): Promise<Post | null> {
 
   if (!data) return null;
   return enrichPost(data as PostRaw);
-}
+});
 
 export async function createPost(title: string, content: string, imageUrl: string | null, videoId: number | null): Promise<void> {
   title = title || "";

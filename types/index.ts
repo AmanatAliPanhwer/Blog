@@ -2,9 +2,11 @@ export interface Post {
   id: number;
   title: string;
   content: string;
+  content_safe?: string;
   image?: string;
   video_id?: number | null;
   formatted_timestamp?: string;
+  timestamp?: string;
   video?: VideoData | null;
 }
 

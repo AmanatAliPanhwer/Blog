@@ -1,17 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPosts, createPost, updatePost } from "@/lib/posts";
+import { createPost, updatePost } from "@/lib/posts";
 import { getSession } from "@/lib/auth";
-
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const page = parseInt(searchParams.get("page") || "1", 10);
-  try {
-    const result = await getPosts(page);
-    return NextResponse.json(result);
-  } catch (e) {
-    return NextResponse.json({ error: "Failed to fetch posts", details: String(e) }, { status: 500 });
-  }
-}
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
