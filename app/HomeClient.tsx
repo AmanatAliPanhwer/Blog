@@ -67,7 +67,9 @@ export default function HomeClient({
   const loadingBottomRef = useRef(false);
   const shouldRestoreRef = useRef(false);
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastFocusRef = useRef<FeedPos | null>(null);
   const restoreTimersRef = useRef<number[]>([]);
+  const restoreLoadRef = useRef<((ev: Event) => void) | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
   const anchorLoadLatchRef = useRef<number | null>(null);
@@ -169,13 +171,16 @@ export default function HomeClient({
   }, [findViewportPage]);
 
   const saveScroll = useCallback(() => {
+    lastFocusRef.current = computeFocusPos();
     if (scrollTimer.current) return;
     scrollTimer.current = setTimeout(() => {
       scrollTimer.current = null;
-      try {
-        sessionStorage.setItem(feedPosKey, JSON.stringify(computeFocusPos()));
-      } catch {
-        // ignore storage failures
+      if (lastFocusRef.current) {
+        try {
+          sessionStorage.setItem(feedPosKey, JSON.stringify(lastFocusRef.current));
+        } catch {
+          // ignore storage failures
+        }
       }
     }, 150);
   }, [feedPosKey, computeFocusPos]);
@@ -184,9 +189,10 @@ export default function HomeClient({
   // page param pointing at the page under the viewport when leaving the feed.
   const finalize = useCallback(() => {
     try {
-      // DOM may already be detached when the feed unmounts, so keep the last
-      // focus captured during scrolling instead of dropping it to null.
-      const fresh = computeFocusPos();
+      // DOM may already be detached by the time the feed unmounts, so use the
+      // focus captured at the last scroll event; only fall back to a live
+      // computation if none was captured.
+      const fresh = lastFocusRef.current ?? computeFocusPos();
       let prev: Pick<FeedPos, "focusId" | "focusOffset"> | null = null;
       try {
         const raw = sessionStorage.getItem(feedPosKey);
@@ -251,14 +257,6 @@ export default function HomeClient({
     }
     if (!pos || pos.y <= 0) return;
 
-    let target = pos.y;
-    if (pos.focusId !== null) {
-      const el = document.getElementById(feedPostElId(pos.focusId));
-      if (el) {
-        target = el.getBoundingClientRect().top + window.scrollY - pos.focusOffset;
-      }
-    }
-
     // Only restore while still on the Feed with the same filter set; a Post
     // navigation away must never scroll the destination page.
     const stillForThisFeed = () => {
@@ -272,19 +270,52 @@ export default function HomeClient({
       );
     };
 
-    // Re-assert a few times: Next.js/browser scroll handling may fire after
-    // our first attempt. Only act while still at the top, so a position the
-    // router already restored (or a user who started scrolling) is left alone.
+    // Resolve the exact position from the left-off post. The browser may have
+    // restored a different non-zero scroll on Back, so we pin relative to the
+    // focus post itself, not the screen's current position.
+    const resolveTarget = (): number | null => {
+      if (pos.focusId !== null) {
+        const el = document.getElementById(feedPostElId(pos.focusId));
+        if (el) {
+          return el.getBoundingClientRect().top + window.scrollY - pos.focusOffset;
+        }
+      }
+      return pos.y;
+    };
+
+    let pinned = false;
     const apply = () => {
       if (!stillForThisFeed()) return;
-      if (Math.abs(window.scrollY - target) < 2) return;
-      if (window.scrollY !== 0) return;
-      window.scrollTo(0, target);
+      const target = resolveTarget();
+      if (target === null) return;
+      const current = window.scrollY;
+      if (Math.abs(current - target) < 3) return;
+      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      if (pinned) {
+        // Still loading: if the document isn't tall enough yet (image/lazy
+        // layout), chase the target as it grows.
+        const bottomClamped = current >= maxScroll - 3 && current < target;
+        // But a user who has deliberately scrolled far away is left alone.
+        if (!bottomClamped && Math.abs(current - target) > 60) return;
+      }
+      pinned = true;
+      window.scrollTo(0, Math.max(0, Math.min(target, maxScroll)));
     };
     apply();
-    for (const delay of [100, 300, 600]) {
+    for (const delay of [120, 300, 700, 1500]) {
       restoreTimersRef.current.push(window.setTimeout(apply, delay));
     }
+    // Re-pin once all images have finished loading, then stop chasing.
+    const onLoad = () => apply();
+    restoreLoadRef.current = onLoad;
+    window.addEventListener("load", onLoad);
+    restoreTimersRef.current.push(
+      window.setTimeout(() => {
+        window.removeEventListener("load", onLoad);
+        restoreLoadRef.current = null;
+        apply();
+      }, 2500),
+    );
   }, [feedPosKey, q, year, month, day]);
 
   // Restore only when arriving via a history traversal (Back/Forward).
@@ -305,6 +336,10 @@ export default function HomeClient({
     window.addEventListener("popstate", onPopState);
     return () => {
       window.removeEventListener("popstate", onPopState);
+      if (restoreLoadRef.current) {
+        window.removeEventListener("load", restoreLoadRef.current);
+        restoreLoadRef.current = null;
+      }
       restoreTimersRef.current.forEach((t) => clearTimeout(t));
       restoreTimersRef.current = [];
     };
