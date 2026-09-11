@@ -51,7 +51,7 @@ export default function PostCard({ post, isAdmin }: PostCardProps) {
             <SupabaseImage
               src={post.image}
               alt=""
-              sizes="(max-width: 768px) 100vw, 640px"
+              sizes="(max-width: 768px) 100vw, 768px"
               className="transition-transform duration-300 group-hover:scale-[1.02]"
             />
           </div>
