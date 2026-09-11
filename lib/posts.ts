@@ -312,6 +312,7 @@ export async function saveVideo(file: File): Promise<{ file_id: number } | null>
   const { error: insertError } = await getSupabaseClient().from("videos").insert({
     filename,
     filepath,
+    status: "queued",
   });
 
   if (insertError) {
