@@ -21,28 +21,12 @@ export async function getSession(): Promise<string | undefined> {
   const session = cookieStore.get(COOKIE_NAME)?.value;
   if (session) return session;
 
-  const restored = await checkPersistentLogin();
-  return restored ? "true" : undefined;
+  return (await hasValidRememberToken()) ? "true" : undefined;
 }
 
-export async function setAdminSession(): Promise<void> {
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE_NAME, "true", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 30,
-    path: "/",
-  });
-}
-
-export async function clearSession(): Promise<void> {
-  const cookieStore = await cookies();
-  cookieStore.delete(COOKIE_NAME);
-  cookieStore.delete(REMEMBER_COOKIE);
-}
-
-export async function checkPersistentLogin(): Promise<boolean> {
+// Read-only: never mutates cookies, so it is safe to call during Server
+// Component rendering (getSession is used by layout.tsx and the pages).
+async function hasValidRememberToken(): Promise<boolean> {
   const cookieStore = await cookies();
   const token = cookieStore.get(REMEMBER_COOKIE)?.value;
   if (!token) return false;
@@ -61,10 +45,7 @@ export async function checkPersistentLogin(): Promise<boolean> {
 
     if (data) {
       const expiresAt = new Date(data.expires_at);
-      if (expiresAt > new Date()) {
-        await setAdminSession();
-        return true;
-      }
+      if (expiresAt > new Date()) return true;
       await getSupabaseClient()
         .from("persistent_logins")
         .delete()
@@ -74,8 +55,41 @@ export async function checkPersistentLogin(): Promise<boolean> {
     console.error("Error checking persistent login:", e);
   }
 
+  return false;
+}
+
+// Write-safe persistent-login restoration. Next.js only allows cookie writes
+// from Server Actions and Route Handlers, so this is called exclusively from
+// the /api/restore-session route handler — never from getSession.
+export async function restorePersistentSession(): Promise<boolean> {
+  const cookieStore = await cookies();
+  if (cookieStore.get(COOKIE_NAME)?.value) return true;
+
+  const restored = await hasValidRememberToken();
+  if (restored) {
+    await setAdminSession();
+    return true;
+  }
+
   cookieStore.delete(REMEMBER_COOKIE);
   return false;
+}
+
+export async function setAdminSession(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.set(COOKIE_NAME, "true", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 30,
+    path: "/",
+  });
+}
+
+export async function clearSession(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.delete(COOKIE_NAME);
+  cookieStore.delete(REMEMBER_COOKIE);
 }
 
 export async function setRememberMeCookie(): Promise<string> {
