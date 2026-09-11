@@ -45,15 +45,19 @@ export default function HomeClient({
   const sentinelRef = useRef<HTMLDivElement>(null);
   const shouldRestoreRef = useRef(false);
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastScrollYRef = useRef(0);
 
   const feedPosKey = `feed:pos:${JSON.stringify([q, year, month, day])}`;
 
+  // Capture the Y at scroll-event time and write it debounced, so an
+  // unwritten position can never be read as the (new page's) scrollY later.
   const saveScroll = useCallback(() => {
+    lastScrollYRef.current = window.scrollY;
     if (scrollTimer.current) return;
     scrollTimer.current = setTimeout(() => {
       scrollTimer.current = null;
       try {
-        sessionStorage.setItem(feedPosKey, String(window.scrollY || 0));
+        sessionStorage.setItem(feedPosKey, String(lastScrollYRef.current || 0));
       } catch {
         // ignore storage failures
       }
@@ -69,9 +73,19 @@ export default function HomeClient({
       // ignore storage failures
     }
     if (y === null || !Number.isFinite(y) || y <= 0) return;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => window.scrollTo(0, y));
-    });
+
+    // Re-assert a few times: Next.js/browser scroll handling may fire after
+    // our first attempt. Only act while still at the top, so a position the
+    // router already restored (or a user who started scrolling) is left alone.
+    const apply = () => {
+      if (window.scrollY === y) return;
+      if (window.scrollY !== 0) return;
+      window.scrollTo(0, y);
+    };
+    apply();
+    window.setTimeout(apply, 100);
+    window.setTimeout(apply, 300);
+    window.setTimeout(apply, 600);
   }, [feedPosKey]);
 
   // Persist the Feed Position while scrolling and on the way out.
@@ -86,6 +100,12 @@ export default function HomeClient({
     window.addEventListener("scroll", saveScroll, { passive: true });
     window.addEventListener("pagehide", finalize, { passive: true });
     return () => {
+      // Cancel any pending debounced write: it would fire after Next.js has
+      // scrolled the navigated-to page to top and clobber the position with 0.
+      if (scrollTimer.current) {
+        clearTimeout(scrollTimer.current);
+        scrollTimer.current = null;
+      }
       window.removeEventListener("scroll", saveScroll);
       window.removeEventListener("pagehide", finalize);
       finalize();
