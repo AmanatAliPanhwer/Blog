@@ -18,7 +18,11 @@ export function isAdminSession(sessionCookie?: string): boolean {
 
 export async function getSession(): Promise<string | undefined> {
   const cookieStore = await cookies();
-  return cookieStore.get(COOKIE_NAME)?.value;
+  const session = cookieStore.get(COOKIE_NAME)?.value;
+  if (session) return session;
+
+  const restored = await checkPersistentLogin();
+  return restored ? "true" : undefined;
 }
 
 export async function setAdminSession(): Promise<void> {
