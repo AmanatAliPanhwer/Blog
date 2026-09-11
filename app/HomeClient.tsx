@@ -116,10 +116,16 @@ export default function HomeClient({
     }
     const t = window.setTimeout(async () => {
       try {
-        const res = await fetch(`/api/feed?${buildQuery(urlPage)}`);
+        const feedId = buildQuery(urlPage);
+        const res = await fetch(`/api/feed?${feedId}`);
         const data = await res.json();
+        // Drop responses that no longer belong to the current feed: the
+        // filters or the page may have changed while the request was in
+        // flight, and installing an obsolete anchor would corrupt the feed.
+        if (feedId !== buildQuery(urlPage)) return;
         anchorLoadLatchRef.current = urlPage;
         setPageSets([{ page: urlPage, posts: data.posts ?? [] }]);
+        setHasNextState(data.has_next);
         lowPageRef.current = urlPage;
         highPageRef.current = urlPage;
       } catch {
