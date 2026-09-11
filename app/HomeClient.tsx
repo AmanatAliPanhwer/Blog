@@ -68,8 +68,9 @@ export default function HomeClient({
   const shouldRestoreRef = useRef(false);
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFocusRef = useRef<FeedPos | null>(null);
-  const restoreTimersRef = useRef<number[]>([]);
-  const restoreLoadRef = useRef<((ev: Event) => void) | null>(null);
+  const restoreRafRef = useRef<number | null>(null);
+  const restoreStopRef = useRef<(() => void) | null>(null);
+  const restoringRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
   const anchorLoadLatchRef = useRef<number | null>(null);
@@ -171,6 +172,9 @@ export default function HomeClient({
   }, [findViewportPage]);
 
   const saveScroll = useCallback(() => {
+    // While a Back-restore is in flight the DOM height is still settling; a
+    // save here would clobber the position we are trying to restore.
+    if (restoringRef.current) return;
     lastFocusRef.current = computeFocusPos();
     if (scrollTimer.current) return;
     scrollTimer.current = setTimeout(() => {
@@ -239,8 +243,10 @@ export default function HomeClient({
   }, [saveScroll, finalize]);
 
   const restoreScroll = useCallback(() => {
-    restoreTimersRef.current.forEach((t) => clearTimeout(t));
-    restoreTimersRef.current = [];
+    // Tear down any in-flight restoration (loop + input listeners) and start
+    // fresh, so restarts can never leak listeners or cancel a newer loop.
+    restoreStopRef.current?.();
+    restoringRef.current = true;
 
     let pos: FeedPos | null = null;
     try {
@@ -255,7 +261,11 @@ export default function HomeClient({
     } catch {
       // ignore storage/parse failures
     }
-    if (!pos || pos.y <= 0) return;
+    if (!pos || pos.y <= 0) {
+      restoringRef.current = false;
+      restoreStopRef.current = null;
+      return;
+    }
 
     // Only restore while still on the Feed with the same filter set; a Post
     // navigation away must never scroll the destination page.
@@ -270,61 +280,90 @@ export default function HomeClient({
       );
     };
 
-    // Resolve the exact position from the left-off post. The browser may have
-    // restored a different non-zero scroll on Back, so we pin relative to the
-    // focus post itself, not the screen's current position.
-    const resolveTarget = (): number | null => {
-      if (pos.focusId !== null) {
-        const el = document.getElementById(feedPostElId(pos.focusId));
-        if (el) {
-          return el.getBoundingClientRect().top + window.scrollY - pos.focusOffset;
-        }
+    const start = Date.now();
+    let alignedChecks = 0;
+    let stopped = false;
+
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      restoringRef.current = false;
+      if (restoreStopRef.current === stop) restoreStopRef.current = null;
+      if (restoreRafRef.current !== null) {
+        cancelAnimationFrame(restoreRafRef.current);
+        restoreRafRef.current = null;
       }
-      return pos.y;
+      for (const type of ["wheel", "touchstart", "pointerdown", "keydown"] as const) {
+        window.removeEventListener(type, onUserInput);
+      }
     };
 
-    let pinned = false;
-    const apply = () => {
-      if (!stillForThisFeed()) return;
-      const target = resolveTarget();
-      if (target === null) return;
-      const current = window.scrollY;
-      if (Math.abs(current - target) < 3) return;
-      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-      if (pinned) {
-        // Still loading: if the document isn't tall enough yet (image/lazy
-        // layout), chase the target as it grows.
-        const bottomClamped = current >= maxScroll - 3 && current < target;
-        // But a user who has deliberately scrolled far away is left alone.
-        if (!bottomClamped && Math.abs(current - target) > 60) return;
+    // Keep nudging the viewport every frame until the left-off post sits at
+    // exactly the offset it had when we left. This absorbs images and lazy
+    // pages growing after the anchor page renders (the doc's height is not
+    // final on the first frame), so the landing is never "random".
+    const frame = () => {
+      if (stopped) return;
+      const now = Date.now();
+      if (now - start > 3000) {
+        stop();
+        return;
       }
-      pinned = true;
-      window.scrollTo(0, Math.max(0, Math.min(target, maxScroll)));
+      if (!stillForThisFeed()) {
+        stop();
+        return;
+      }
+      const el = pos.focusId !== null ? document.getElementById(feedPostElId(pos.focusId)) : null;
+      if (el) {
+        const offset = el.getBoundingClientRect().top;
+        if (Math.abs(offset - pos.focusOffset) <= 2) {
+          if (++alignedChecks >= 3) {
+            stop();
+            return;
+          }
+        } else {
+          alignedChecks = 0;
+          const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+          window.scrollTo(0, Math.max(0, Math.min(window.scrollY + (offset - pos.focusOffset), maxScroll)));
+        }
+      } else if (now - start > 2500) {
+        // The focus post never appeared (e.g. anchor could not load): fall
+        // back to an absolute scroll so the reader is near their old depth.
+        const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        window.scrollTo(0, Math.max(0, Math.min(pos.y, maxScroll)));
+        stop();
+        return;
+      }
+      restoreRafRef.current = requestAnimationFrame(frame);
     };
-    apply();
-    for (const delay of [120, 300, 700, 1500]) {
-      restoreTimersRef.current.push(window.setTimeout(apply, delay));
-    }
-    // Re-pin once all images have finished loading, then stop chasing.
-    const onLoad = () => apply();
-    restoreLoadRef.current = onLoad;
-    window.addEventListener("load", onLoad);
-    restoreTimersRef.current.push(
-      window.setTimeout(() => {
-        window.removeEventListener("load", onLoad);
-        restoreLoadRef.current = null;
-        apply();
-      }, 2500),
-    );
+
+    // Any deliberate user input ends the restore so we never fight them.
+    const onUserInput = () => stop();
+    window.addEventListener("wheel", onUserInput, { passive: true });
+    window.addEventListener("touchstart", onUserInput, { passive: true });
+    window.addEventListener("pointerdown", onUserInput, { passive: true });
+    window.addEventListener("keydown", onUserInput);
+
+    restoreStopRef.current = stop;
+    restoreRafRef.current = requestAnimationFrame(frame);
   }, [feedPosKey, q, year, month, day]);
 
   // Restore only when arriving via a history traversal (Back/Forward).
   useEffect(() => {
     if (consumeFeedBackFlag()) {
       shouldRestoreRef.current = true;
+      restoringRef.current = true;
+      // Release the save-block if the restore never starts (anchor missing).
+      window.setTimeout(() => {
+        if (restoringRef.current && !restoreStopRef.current) restoringRef.current = false;
+      }, 4000);
     }
     const onPopState = () => {
       shouldRestoreRef.current = true;
+      restoringRef.current = true;
+      window.setTimeout(() => {
+        if (restoringRef.current && !restoreStopRef.current) restoringRef.current = false;
+      }, 4000);
       if (contentReady) restoreScroll();
       // HistoryNavFlag writes the flag synchronously during this dispatch;
       // clear it (after all synchronous listeners) so a later ordinary Home
@@ -336,12 +375,7 @@ export default function HomeClient({
     window.addEventListener("popstate", onPopState);
     return () => {
       window.removeEventListener("popstate", onPopState);
-      if (restoreLoadRef.current) {
-        window.removeEventListener("load", restoreLoadRef.current);
-        restoreLoadRef.current = null;
-      }
-      restoreTimersRef.current.forEach((t) => clearTimeout(t));
-      restoreTimersRef.current = [];
+      restoreStopRef.current?.();
     };
   }, [contentReady, restoreScroll]);
 
