@@ -7,6 +7,7 @@ import { ArrowLeft, Clock, Pencil, Trash2 } from "lucide-react";
 import type { Post } from "@/types";
 import { Button } from "@/components/ui/button";
 import ImageLightbox from "@/components/ImageLightbox";
+import { consumeFeedOrigin } from "@/components/HistoryNavFlag";
 
 const VideoPlayer = dynamic(() => import("@/components/VideoPlayer"), {
   ssr: false,
@@ -32,7 +33,7 @@ export default function PostViewClient({
       <Button
         variant="link"
         onClick={() => {
-          if (window.history.length > 1) router.back();
+          if (consumeFeedOrigin(post.id)) router.back();
           else router.replace("/");
         }}
         className="inline-flex items-center gap-1.5 p-0 font-sans text-sm text-primary transition-colors hover:underline"

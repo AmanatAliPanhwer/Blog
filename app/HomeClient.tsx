@@ -67,6 +67,7 @@ export default function HomeClient({
   const loadingBottomRef = useRef(false);
   const shouldRestoreRef = useRef(false);
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restoreTimersRef = useRef<number[]>([]);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
   const anchorLoadLatchRef = useRef<number | null>(null);
@@ -232,6 +233,9 @@ export default function HomeClient({
   }, [saveScroll, finalize]);
 
   const restoreScroll = useCallback(() => {
+    restoreTimersRef.current.forEach((t) => clearTimeout(t));
+    restoreTimersRef.current = [];
+
     let pos: FeedPos | null = null;
     try {
       const raw = sessionStorage.getItem(feedPosKey);
@@ -255,19 +259,33 @@ export default function HomeClient({
       }
     }
 
+    // Only restore while still on the Feed with the same filter set; a Post
+    // navigation away must never scroll the destination page.
+    const stillForThisFeed = () => {
+      if (window.location.pathname !== "/") return false;
+      const p = new URLSearchParams(window.location.search);
+      return (
+        (p.get("q") ?? "") === q &&
+        (p.get("year") ?? "") === year &&
+        (p.get("month") ?? "") === month &&
+        (p.get("day") ?? "") === day
+      );
+    };
+
     // Re-assert a few times: Next.js/browser scroll handling may fire after
     // our first attempt. Only act while still at the top, so a position the
     // router already restored (or a user who started scrolling) is left alone.
     const apply = () => {
+      if (!stillForThisFeed()) return;
       if (Math.abs(window.scrollY - target) < 2) return;
       if (window.scrollY !== 0) return;
       window.scrollTo(0, target);
     };
     apply();
-    window.setTimeout(apply, 100);
-    window.setTimeout(apply, 300);
-    window.setTimeout(apply, 600);
-  }, [feedPosKey]);
+    for (const delay of [100, 300, 600]) {
+      restoreTimersRef.current.push(window.setTimeout(apply, delay));
+    }
+  }, [feedPosKey, q, year, month, day]);
 
   // Restore only when arriving via a history traversal (Back/Forward).
   useEffect(() => {
@@ -277,9 +295,19 @@ export default function HomeClient({
     const onPopState = () => {
       shouldRestoreRef.current = true;
       if (contentReady) restoreScroll();
+      // HistoryNavFlag writes the flag synchronously during this dispatch;
+      // clear it (after all synchronous listeners) so a later ordinary Home
+      // mount cannot restore a stale position.
+      window.setTimeout(() => {
+        consumeFeedBackFlag();
+      }, 0);
     };
     window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      restoreTimersRef.current.forEach((t) => clearTimeout(t));
+      restoreTimersRef.current = [];
+    };
   }, [contentReady, restoreScroll]);
 
   // Once the anchor page is in place, apply the restored position.
