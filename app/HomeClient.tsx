@@ -71,6 +71,8 @@ export default function HomeClient({
   const restoreRafRef = useRef<number | null>(null);
   const restoreStopRef = useRef<(() => void) | null>(null);
   const restoringRef = useRef(false);
+  const settleRafRef = useRef<number | null>(null);
+  const prependSettleRef = useRef<(() => void) | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
   const anchorLoadLatchRef = useRef<number | null>(null);
@@ -287,7 +289,7 @@ export default function HomeClient({
     };
 
     const start = Date.now();
-    let alignedChecks = 0;
+    let lastRealignAt = start;
     let stopped = false;
 
     const stop = () => {
@@ -311,7 +313,7 @@ export default function HomeClient({
     const frame = () => {
       if (stopped) return;
       const now = Date.now();
-      if (now - start > 3000) {
+      if (now - start > 8000) {
         stop();
         return;
       }
@@ -323,12 +325,15 @@ export default function HomeClient({
       if (el) {
         const offset = el.getBoundingClientRect().top;
         if (Math.abs(offset - pos.focusOffset) <= 2) {
-          if (++alignedChecks >= 3) {
+          // Keep pinning until the layout has been quiet for a while: images
+          // and prepended pages keep shifting the post for a few seconds, so
+          // stopping after a couple of stable frames lets it drift again.
+          if (now - lastRealignAt > 400) {
             stop();
             return;
           }
         } else {
-          alignedChecks = 0;
+          lastRealignAt = now;
           const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
           window.scrollTo(0, Math.max(0, Math.min(window.scrollY + (offset - pos.focusOffset), maxScroll)));
         }
@@ -382,6 +387,7 @@ export default function HomeClient({
     return () => {
       window.removeEventListener("popstate", onPopState);
       restoreStopRef.current?.();
+      prependSettleRef.current?.();
     };
   }, [contentReady, restoreScroll]);
 
@@ -394,6 +400,64 @@ export default function HomeClient({
     }
   }, [contentReady, restoreScroll]);
 
+  // After prepending a page, keep the previously-top page pinned at the exact
+  // absolute position it had before the insert. The new page's DOM mounts
+  // before its images load, so its height isn't final; this loop re-corrects
+  // as those images grow, so the reader below never drifts.
+  const startAnchorSettle = useCallback((el: HTMLElement, initialAbsTop: number) => {
+    prependSettleRef.current?.();
+    const start = Date.now();
+    let stableFrames = 0;
+    let stopped = false;
+
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      if (prependSettleRef.current === stop) prependSettleRef.current = null;
+      if (settleRafRef.current !== null) {
+        cancelAnimationFrame(settleRafRef.current);
+        settleRafRef.current = null;
+      }
+      for (const type of ["wheel", "touchstart", "pointerdown", "keydown"] as const) {
+        window.removeEventListener(type, onUserInput);
+      }
+    };
+
+    const frame = () => {
+      if (stopped) return;
+      if (!el.isConnected) {
+        stop();
+        return;
+      }
+      const absTop = el.getBoundingClientRect().top + window.scrollY;
+      const delta = absTop - initialAbsTop;
+      if (Math.abs(delta) <= 1) {
+        if (++stableFrames >= 8) {
+          stop();
+          return;
+        }
+      } else {
+        stableFrames = 0;
+        window.scrollTo(0, Math.max(0, window.scrollY + delta));
+      }
+      if (Date.now() - start > 6000) {
+        stop();
+        return;
+      }
+      settleRafRef.current = requestAnimationFrame(frame);
+    };
+
+    // Stop compensating as soon as the user starts scrolling themselves.
+    const onUserInput = () => stop();
+    window.addEventListener("wheel", onUserInput, { passive: true });
+    window.addEventListener("touchstart", onUserInput, { passive: true });
+    window.addEventListener("pointerdown", onUserInput, { passive: true });
+    window.addEventListener("keydown", onUserInput);
+
+    prependSettleRef.current = stop;
+    settleRafRef.current = requestAnimationFrame(frame);
+  }, []);
+
   // Load the page above the current lowest one, and compensate the scroll by
   // the added height so the reader does not jump.
   const loadUp = useCallback(async () => {
@@ -401,11 +465,10 @@ export default function HomeClient({
     if (targetPage < 1 || loadingTopRef.current) return;
     loadingTopRef.current = true;
     const anchorNode = pageElsRef.current[lowPageRef.current] ?? null;
-    const anchorRect = anchorNode?.getBoundingClientRect().top ?? 0;
+    const anchorAbs = anchorNode ? anchorNode.getBoundingClientRect().top + window.scrollY : 0;
     try {
       const res = await fetch(`/api/feed?${buildQuery(targetPage)}`);
       const data = await res.json();
-      const yAtCommit = window.scrollY;
       if (data.posts?.length) {
         setPageSets((prev) => {
           const ids = new Set(prev.flatMap((p) => p.posts).map((p) => p.id));
@@ -413,20 +476,21 @@ export default function HomeClient({
         });
         lowPageRef.current = targetPage;
       }
-      requestAnimationFrame(() => {
+      if (anchorNode) {
+        // Start correcting once the new nodes are committed; keep correcting
+        // while their images lazy-load (the page height is far from final).
         requestAnimationFrame(() => {
-          if (anchorNode?.isConnected && yAtCommit >= 0) {
-            const delta = anchorNode.getBoundingClientRect().top - anchorRect;
-            if (Math.abs(delta) > 1) window.scrollTo(0, Math.max(0, yAtCommit + delta));
-          }
+          requestAnimationFrame(() => {
+            if (anchorNode?.isConnected) startAnchorSettle(anchorNode, anchorAbs);
+          });
         });
-      });
+      }
     } catch (e) {
       console.error("Failed to load previous page:", e);
     } finally {
       loadingTopRef.current = false;
     }
-  }, [buildQuery]);
+  }, [buildQuery, startAnchorSettle]);
 
   // Trigger the upward page load as soon as the user scrolls up (there is no
   // scroll room above the anchor page until those pages are prepended, so a
