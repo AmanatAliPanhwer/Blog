@@ -29,13 +29,17 @@ export default function PostViewClient({
 
   return (
     <div className="space-y-5">
-      <Link
-        href="/"
-        className="inline-flex items-center gap-1.5 font-sans text-sm text-primary transition-colors hover:underline"
+      <Button
+        variant="link"
+        onClick={() => {
+          if (window.history.length > 1) router.back();
+          else router.replace("/");
+        }}
+        className="inline-flex items-center gap-1.5 p-0 font-sans text-sm text-primary transition-colors hover:underline"
       >
         <ArrowLeft className="size-4" />
         Back to Home
-      </Link>
+      </Button>
 
       <article className="space-y-4 rounded-[10px] border border-[#fffaff]/30 bg-card p-4 shadow-[0_4px_8px_rgba(0,255,0,0.4)] sm:p-6">
         {post.title ? (
