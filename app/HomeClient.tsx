@@ -7,6 +7,7 @@ import { Loader2, SearchX } from "lucide-react";
 import type { Post } from "@/types";
 import PostCard from "@/components/PostCard";
 import FilterPanel from "@/components/FilterPanel";
+import { consumeFeedBackFlag } from "@/components/HistoryNavFlag";
 
 interface HomeClientProps {
   initialPosts: Post[];
@@ -37,10 +38,82 @@ export default function HomeClient({
   const [posts, setPosts] = useState<Post[]>(initialPosts);
   const [hasNextState, setHasNextState] = useState(hasNext);
   const [isLoading, setIsLoading] = useState(false);
+  const [contentReady, setContentReady] = useState(initialPage <= 1);
 
   const pageRef = useRef(initialPage);
   const loadingRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const shouldRestoreRef = useRef(false);
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const feedPosKey = `feed:pos:${JSON.stringify([q, year, month, day])}`;
+
+  const saveScroll = useCallback(() => {
+    if (scrollTimer.current) return;
+    scrollTimer.current = setTimeout(() => {
+      scrollTimer.current = null;
+      try {
+        sessionStorage.setItem(feedPosKey, String(window.scrollY || 0));
+      } catch {
+        // ignore storage failures
+      }
+    }, 150);
+  }, [feedPosKey]);
+
+  const restoreScroll = useCallback(() => {
+    let y: number | null = null;
+    try {
+      const raw = sessionStorage.getItem(feedPosKey);
+      y = raw === null ? null : Number(raw);
+    } catch {
+      // ignore storage failures
+    }
+    if (y === null || !Number.isFinite(y) || y <= 0) return;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => window.scrollTo(0, y));
+    });
+  }, [feedPosKey]);
+
+  // Persist the Feed Position while scrolling and on the way out.
+  useEffect(() => {
+    const finalize = () => {
+      try {
+        sessionStorage.setItem(feedPosKey, String(window.scrollY || 0));
+      } catch {
+        // ignore storage failures
+      }
+    };
+    window.addEventListener("scroll", saveScroll, { passive: true });
+    window.addEventListener("pagehide", finalize, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", saveScroll);
+      window.removeEventListener("pagehide", finalize);
+      finalize();
+    };
+  }, [saveScroll, feedPosKey]);
+
+  // Restore only when arriving via a history traversal (Back/Forward).
+  useEffect(() => {
+    if (consumeFeedBackFlag()) {
+      shouldRestoreRef.current = true;
+    }
+    const onPopState = () => {
+      shouldRestoreRef.current = true;
+      if (contentReady) restoreScroll();
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [contentReady, restoreScroll]);
+
+  // Once the content (including prefetched prefix pages) is in place, apply
+  // the restored Feed Position for a traversal arrival.
+  useEffect(() => {
+    if (!contentReady) return;
+    if (shouldRestoreRef.current) {
+      shouldRestoreRef.current = false;
+      restoreScroll();
+    }
+  }, [contentReady, restoreScroll]);
 
   const buildQuery = useCallback(
     (page: number) => {
@@ -85,6 +158,7 @@ export default function HomeClient({
         const ids = new Set(prev.map((p) => p.id));
         return [...prefix.filter((p) => !ids.has(p.id)), ...prev];
       });
+      setContentReady(true);
     })();
     return () => {
       cancelled = true;
