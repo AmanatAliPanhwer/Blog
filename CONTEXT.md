@@ -16,6 +16,9 @@ _Avoid_: Content
 **Feed**: the home page list of Posts, newest first, loaded incrementally and filterable by date.
 _Avoid_: Timeline, homepage list
 
+**Feed Position**: the point in the Feed a visitor left off at (pages loaded and the scroll offset). Remembered across navigation so reopening the Feed resumes there.
+_Avoid_: Scroll position, history
+
 **Archive Filter**: narrowing the Feed by year / month / day.
 
 **Video**: a media artifact attached to a Post. It has a lifecycle: uploaded/queued → processing → processed, or failed. Playback uses HLS.
@@ -23,6 +26,9 @@ _Avoid_: Media, movie, clip
 
 **Admin**: the single owner/author of the Blog. Authenticated by a cookie session derived from environment-variable credentials. There is exactly one admin.
 _Avoid_: User, author, account
+
+**Persistent Login**: the "remember me" choice at login. A token cookie that lets a returning Admin's session be restored without re-entering credentials. The token is stored hashed and expires.
+_Avoid_: Remember me, stay signed in
 
 **Quick Capture**: the primary workflow — while working, open the editor and jot a short note (title optional, body required).
 
