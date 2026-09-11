@@ -7,7 +7,7 @@ import { Loader2, SearchX } from "lucide-react";
 import type { Post } from "@/types";
 import PostCard from "@/components/PostCard";
 import FilterPanel from "@/components/FilterPanel";
-import { consumeFeedBackFlag } from "@/components/HistoryNavFlag";
+import { cacheFeedPos, consumeFeedBackFlag, getCachedFeedPos } from "@/components/HistoryNavFlag";
 
 interface HomeClientProps {
   initialPosts: Post[];
@@ -28,6 +28,8 @@ interface FeedPos {
   y: number;
   focusId: number | null;
   focusOffset: number;
+  /** Feed page that contained the focused Post at capture time. */
+  page?: number;
 }
 
 const feedPostElId = (id: number) => `feed-post-${id}`;
@@ -76,6 +78,7 @@ export default function HomeClient({
   const sentinelRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
   const anchorLoadLatchRef = useRef<number | null>(null);
+  const loadUpRef = useRef<() => void>(() => {});
 
   const feedPosKey = `feed:pos:${JSON.stringify([q, year, month, day])}`;
 
@@ -179,76 +182,71 @@ export default function HomeClient({
     return { y, focusId, focusOffset };
   }, [findViewportPage]);
 
+  // While scrolling, keep the in-memory position fresh (the click snapshot and
+  // any later scroll restores read from it). Storage is written throttled so a
+  // manual reload still restores, without hammering sessionStorage per event.
   const saveScroll = useCallback(() => {
-    // While a Back-restore is in flight the DOM height is still settling; a
-    // save here would clobber the position we are trying to restore.
     if (restoringRef.current) return;
     lastFocusRef.current = computeFocusPos();
-    if (scrollTimer.current) return;
-    scrollTimer.current = setTimeout(() => {
-      scrollTimer.current = null;
-      if (lastFocusRef.current) {
+    cacheFeedPos(feedPosKey, lastFocusRef.current);
+    if (!scrollTimer.current) {
+      scrollTimer.current = setTimeout(() => {
+        scrollTimer.current = null;
         try {
           sessionStorage.setItem(feedPosKey, JSON.stringify(lastFocusRef.current));
         } catch {
           // ignore storage failures
         }
-      }
-    }, 150);
-  }, [feedPosKey, computeFocusPos]);
+      }, 250);
+    }
+  }, [computeFocusPos, feedPosKey]);
 
-  // Write the full position (exact post + viewport offset) and keep the URL's
-  // page param pointing at the page under the viewport when leaving the feed.
-  const finalize = useCallback(() => {
-    try {
-      // DOM may already be detached by the time the feed unmounts, so use the
-      // focus captured at the last scroll event; only fall back to a live
-      // computation if none was captured.
-      const fresh = lastFocusRef.current ?? computeFocusPos();
-      let prev: Pick<FeedPos, "focusId" | "focusOffset"> | null = null;
+  // The position must reflect exactly what the reader sees when they click a
+  // Post. Scroll events capture an older frame (images above keep loading and
+  // shifting the layout), so the feed snapshots the position on any click via
+  // a capture-phase handler that runs before the Post Link navigates.
+  const snapshotPos = useCallback(() => {
+    if (restoringRef.current) return;
+    lastFocusRef.current = computeFocusPos();
+    const pos = lastFocusRef.current;
+    // Record the page that the focused Post sits on and patch the URL while
+    // the DOM is still alive. It can't be done at unmount: by the time the
+    // feed tears down, the browser has already navigated to the Post route,
+    // so the back URL would keep a stale (or absent) page param.
+    if (pos.focusId != null) {
+      const found = pageSetsRef.current.find((p) => p.posts.some((x) => x.id === pos.focusId));
+      if (found) pos.page = found.page;
       try {
-        const raw = sessionStorage.getItem(feedPosKey);
-        if (raw) {
-          const p = JSON.parse(raw);
-          if (p && p.focusId != null) prev = { focusId: p.focusId, focusOffset: Number(p.focusOffset) || 0 };
+        const u = new URL(window.location.href);
+        if (pos.page != null && pos.page > 1) u.searchParams.set("page", String(pos.page));
+        else u.searchParams.delete("page");
+        if (u.pathname + u.search !== window.location.pathname + window.location.search) {
+          window.history.replaceState(null, "", u.pathname + u.search);
         }
       } catch {
-        // ignore parse failures
+        // ignore history failures
       }
-      const merged: FeedPos = {
-        y: fresh.y,
-        focusId: fresh.focusId ?? prev?.focusId ?? null,
-        focusOffset: fresh.focusId != null ? fresh.focusOffset : prev?.focusOffset ?? 0,
-      };
-      sessionStorage.setItem(feedPosKey, JSON.stringify(merged));
+    }
+    cacheFeedPos(feedPosKey, pos);
+    try {
+      sessionStorage.setItem(feedPosKey, JSON.stringify(pos));
     } catch {
       // ignore storage failures
     }
-    try {
-      if (window.location.pathname !== "/") return;
-      const pageNum = findViewportPage(window.scrollY);
-      const u = new URL(window.location.href);
-      if (pageNum > 1) u.searchParams.set("page", String(pageNum));
-      else u.searchParams.delete("page");
-      window.history.replaceState(null, "", u.pathname + u.search);
-    } catch {
-      // ignore history/storage failures
-    }
-  }, [computeFocusPos, findViewportPage, feedPosKey]);
+  }, [feedPosKey, computeFocusPos]);
 
+  // Track scroll so the in-memory position always reflects what the reader is
+  // looking at; the click snapshot re-captures it at the moment of navigation.
   useEffect(() => {
     window.addEventListener("scroll", saveScroll, { passive: true });
-    window.addEventListener("pagehide", finalize, { passive: true });
     return () => {
       if (scrollTimer.current) {
         clearTimeout(scrollTimer.current);
         scrollTimer.current = null;
       }
       window.removeEventListener("scroll", saveScroll);
-      window.removeEventListener("pagehide", finalize);
-      finalize();
     };
-  }, [saveScroll, finalize]);
+  }, [saveScroll]);
 
   const restoreScroll = useCallback(() => {
     // Tear down any in-flight restoration (loop + input listeners) and start
@@ -256,18 +254,23 @@ export default function HomeClient({
     restoreStopRef.current?.();
     restoringRef.current = true;
 
-    let pos: FeedPos | null = null;
-    try {
-      const raw = sessionStorage.getItem(feedPosKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        pos =
-          typeof parsed === "object"
-            ? { y: Number(parsed.y) || 0, focusId: parsed.focusId ?? null, focusOffset: Number(parsed.focusOffset) || 0 }
-            : { y: Number(raw) || 0, focusId: null, focusOffset: 0 };
+    // Prefer the in-memory position: it is always the freshest capture (the
+    // click snapshot, not a scroll event), and a remount can clobber
+    // sessionStorage with a detached-DOM zero right after mount.
+    let pos: FeedPos | null = getCachedFeedPos(feedPosKey) ?? null;
+    if (!pos) {
+      try {
+        const raw = sessionStorage.getItem(feedPosKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          pos =
+            typeof parsed === "object"
+              ? { y: Number(parsed.y) || 0, focusId: parsed.focusId ?? null, focusOffset: Number(parsed.focusOffset) || 0 }
+              : { y: Number(raw) || 0, focusId: null, focusOffset: 0 };
+        }
+      } catch {
+        // ignore storage/parse failures
       }
-    } catch {
-      // ignore storage/parse failures
     }
     if (!pos || pos.y <= 0) {
       restoringRef.current = false;
@@ -290,6 +293,7 @@ export default function HomeClient({
 
     const start = Date.now();
     let lastRealignAt = start;
+    let lastLoadUpAt = start;
     let stopped = false;
 
     const stop = () => {
@@ -335,7 +339,17 @@ export default function HomeClient({
         } else {
           lastRealignAt = now;
           const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-          window.scrollTo(0, Math.max(0, Math.min(window.scrollY + (offset - pos.focusOffset), maxScroll)));
+          const target = window.scrollY + (offset - pos.focusOffset);
+          if (target > maxScroll && lowPageRef.current > 1 && now - lastLoadUpAt > 250) {
+            // The saved post can't reach its offset because the pages ABOVE
+            // the anchor page are not rendered yet (the doc is too short).
+            // Fetch the next page up instead of bottom-clamping; the loop
+            // keeps chasing as the doc grows, so the pin stays exact.
+            lastLoadUpAt = now;
+            loadUpRef.current();
+          } else {
+            window.scrollTo(0, Math.max(0, Math.min(target, maxScroll)));
+          }
         }
       } else if (now - start > 2500) {
         // The focus post never appeared (e.g. anchor could not load): fall
@@ -476,9 +490,11 @@ export default function HomeClient({
         });
         lowPageRef.current = targetPage;
       }
-      if (anchorNode) {
+      if (anchorNode && !restoringRef.current) {
         // Start correcting once the new nodes are committed; keep correcting
         // while their images lazy-load (the page height is far from final).
+        // Skipped while a scroll restore is in flight: the restore loop is
+        // already chasing the focus post, so settle would fight it.
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             if (anchorNode?.isConnected) startAnchorSettle(anchorNode, anchorAbs);
@@ -491,6 +507,8 @@ export default function HomeClient({
       loadingTopRef.current = false;
     }
   }, [buildQuery, startAnchorSettle]);
+
+  loadUpRef.current = loadUp;
 
   // Trigger the upward page load as soon as the user scrolls up (there is no
   // scroll room above the anchor page until those pages are prepended, so a
@@ -598,7 +616,7 @@ export default function HomeClient({
   const posts = pageSets.flatMap((p) => p.posts);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" onClickCapture={snapshotPos}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-heading text-5xl font-bold tracking-tight text-primary">
           {q ? (
