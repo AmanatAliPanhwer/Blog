@@ -343,7 +343,26 @@ export default function HomeClient({
       const el = pos.focusId !== null ? document.getElementById(feedPostElId(pos.focusId)) : null;
       if (el) {
         const offset = el.getBoundingClientRect().top;
-        if (Math.abs(offset - pos.focusOffset) <= 2) {
+        const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+        const pinned = Math.abs(offset - pos.focusOffset) <= 2;
+        if (pinned && maxScroll < pos.y - 4 && now - lastLoadUpAt > 250) {
+          // The post is at its saved viewport offset, but the document is
+          // still too short to scroll all the way back to the saved depth
+          // (this happens when the anchor page renders alone after a deep
+          // Browse). Rebuild the pages the reader already had loaded -- pages
+          // above the anchor first, then below -- until the depth is
+          // reachable, keeping the post pinned the whole time.
+          lastRealignAt = now;
+          lastLoadUpAt = now;
+          if (lowPageRef.current > 1) loadUpRef.current();
+          else if (hasNextRef.current) loadMoreRef.current();
+          else {
+            // Nothing left anywhere: land as deep as the journal allows.
+            window.scrollTo(0, Math.max(0, Math.min(pos.y, maxScroll)));
+            stop();
+            return;
+          }
+        } else if (pinned) {
           // Keep pinning until the layout has been quiet for a while: images
           // and prepended pages keep shifting the post for a few seconds, so
           // stopping after a couple of stable frames lets it drift again.
@@ -353,7 +372,6 @@ export default function HomeClient({
           }
         } else {
           lastRealignAt = now;
-          const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
           const target = window.scrollY + (offset - pos.focusOffset);
           if (target > maxScroll && now - lastLoadUpAt > 250) {
             // The saved post can't reach its offset yet. Load the page ABOVE
@@ -369,11 +387,20 @@ export default function HomeClient({
           }
         }
       } else {
-        // The focus post element isn't rendered yet. If the saved depth is
-        // beyond the rendered height, the post lives in a page below that
-        // hasn't loaded — fetch it instead of abandoning at the bottom clamp.
+        // The focus post element isn't rendered yet. The click snapshot
+        // records which page it sits on, so fetch that page directly (loadMore
+        // when it lies below the loaded range, loadUp when it lies above)
+        // instead of abandoning at the bottom clamp. A finite fallback still
+        // lands on an absolute position if the page never arrives.
         const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-        if (pos.y > maxScroll && hasNextRef.current && now - lastLoadUpAt > 250) {
+        const posPage = pos.page ?? null;
+        if (posPage !== null && posPage > highPageRef.current && now - lastLoadUpAt > 250) {
+          lastLoadUpAt = now;
+          loadMoreRef.current();
+        } else if (posPage !== null && posPage < lowPageRef.current && lowPageRef.current > 1 && now - lastLoadUpAt > 250) {
+          lastLoadUpAt = now;
+          loadUpRef.current();
+        } else if (pos.y > maxScroll && hasNextRef.current && now - lastLoadUpAt > 250) {
           lastLoadUpAt = now;
           loadMoreRef.current();
         } else if (now - start > 2500) {
@@ -651,9 +678,24 @@ export default function HomeClient({
   useEffect(() => {
     const node = sentinelRef.current;
     if (!node || !contentReady) return;
+    let isFirstObservation = true;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting) loadMore();
+        const entry = entries[0];
+        if (!entry) return;
+        // Same as the top sentinel: the observer reports the sentinel's
+        // state on observe() before any real transition. Ignoring it stops
+        // an arrival (restore or a deep page load) whose viewport is already
+        // near the bottom from auto-loading every page down to the end.
+        if (isFirstObservation) {
+          isFirstObservation = false;
+          return;
+        }
+        // While a scroll restore is in flight the restore loop loads exactly
+        // the pages it needs; the sentinel firing in parallel would race it
+        // and stack extra pages below before the reader ever scrolls.
+        if (restoringRef.current) return;
+        if (entry.isIntersecting) loadMore();
       },
       { rootMargin: "600px 0px" }
     );
