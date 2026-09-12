@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Clock, Pencil, Trash2 } from "lucide-react";
 import type { Post } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,11 @@ export default function PostViewClient({
   isAdmin: boolean;
 }) {
   const router = useRouter();
+  const [fromFeed, setFromFeed] = useState(false);
+
+  useEffect(() => {
+    setFromFeed(consumeFeedOrigin(post.id));
+  }, [post.id]);
 
   const handleDelete = () => {
     if (confirm("Delete this note? This cannot be undone.")) {
@@ -33,7 +39,7 @@ export default function PostViewClient({
       <Button
         variant="link"
         onClick={() => {
-          if (consumeFeedOrigin(post.id)) router.back();
+          if (fromFeed) router.back();
           else router.replace("/");
         }}
         className="inline-flex items-center gap-1.5 p-0 font-sans text-sm text-primary transition-colors hover:underline"

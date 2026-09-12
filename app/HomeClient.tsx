@@ -7,7 +7,7 @@ import { Loader2, SearchX } from "lucide-react";
 import type { Post } from "@/types";
 import PostCard from "@/components/PostCard";
 import FilterPanel from "@/components/FilterPanel";
-import { cacheFeedPos, consumeFeedBackFlag, getCachedFeedPos } from "@/components/HistoryNavFlag";
+import { cacheFeedPos, clearFeedOrigin, consumeFeedBackFlag, getCachedFeedPos } from "@/components/HistoryNavFlag";
 
 interface HomeClientProps {
   initialPosts: Post[];
@@ -79,8 +79,22 @@ export default function HomeClient({
   const topSentinelRef = useRef<HTMLDivElement>(null);
   const anchorLoadLatchRef = useRef<number | null>(null);
   const loadUpRef = useRef<() => void>(() => {});
+  const loadMoreRef = useRef<() => void>(() => {});
+  const hasNextRef = useRef(hasNext);
+  const feedIdRef = useRef("");
 
   const feedPosKey = `feed:pos:${JSON.stringify([q, year, month, day])}`;
+
+  // The Feed is a fresh context: any leftover Feed-origin marker from a
+  // previous visit was left behind by browser Back, so a directly opened
+  // Post must never mistake it for a real Feed click.
+  useEffect(() => {
+    clearFeedOrigin();
+  }, []);
+
+  useEffect(() => {
+    hasNextRef.current = hasNextState;
+  }, [hasNextState]);
 
   // The feed renders the page you left off on (the URL's page anchor), with
   // the pages above and below fetched lazily as you scroll toward them.
@@ -114,6 +128,8 @@ export default function HomeClient({
   // Fallback: if the URL points at a page the server payload never delivers
   // (Back restoring a stale cache entry), fetch the anchor page ourselves.
   useEffect(() => {
+    const feedId = buildQuery(urlPage);
+    feedIdRef.current = feedId;
     if (anchorLoadLatchRef.current === urlPage) return;
     if (pageSets.some((p) => p.page === urlPage)) {
       anchorLoadLatchRef.current = urlPage;
@@ -121,13 +137,12 @@ export default function HomeClient({
     }
     const t = window.setTimeout(async () => {
       try {
-        const feedId = buildQuery(urlPage);
         const res = await fetch(`/api/feed?${feedId}`);
         const data = await res.json();
         // Drop responses that no longer belong to the current feed: the
         // filters or the page may have changed while the request was in
         // flight, and installing an obsolete anchor would corrupt the feed.
-        if (feedId !== buildQuery(urlPage)) return;
+        if (feedId !== feedIdRef.current) return;
         anchorLoadLatchRef.current = urlPage;
         setPageSets([{ page: urlPage, posts: data.posts ?? [] }]);
         setHasNextState(data.has_next);
@@ -340,24 +355,34 @@ export default function HomeClient({
           lastRealignAt = now;
           const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
           const target = window.scrollY + (offset - pos.focusOffset);
-          if (target > maxScroll && lowPageRef.current > 1 && now - lastLoadUpAt > 250) {
-            // The saved post can't reach its offset because the pages ABOVE
-            // the anchor page are not rendered yet (the doc is too short).
-            // Fetch the next page up instead of bottom-clamping; the loop
-            // keeps chasing as the doc grows, so the pin stays exact.
+          if (target > maxScroll && now - lastLoadUpAt > 250) {
+            // The saved post can't reach its offset yet. Load the page ABOVE
+            // when prepended pages are missing, or the page BELOW when the
+            // focus sat deeper in the loaded range; the loop keeps chasing as
+            // the doc grows, so the pin stays exact.
             lastLoadUpAt = now;
-            loadUpRef.current();
+            if (lowPageRef.current > 1) loadUpRef.current();
+            else if (hasNextRef.current) loadMoreRef.current();
+            else window.scrollTo(0, maxScroll);
           } else {
             window.scrollTo(0, Math.max(0, Math.min(target, maxScroll)));
           }
         }
-      } else if (now - start > 2500) {
-        // The focus post never appeared (e.g. anchor could not load): fall
-        // back to an absolute scroll so the reader is near their old depth.
+      } else {
+        // The focus post element isn't rendered yet. If the saved depth is
+        // beyond the rendered height, the post lives in a page below that
+        // hasn't loaded — fetch it instead of abandoning at the bottom clamp.
         const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-        window.scrollTo(0, Math.max(0, Math.min(pos.y, maxScroll)));
-        stop();
-        return;
+        if (pos.y > maxScroll && hasNextRef.current && now - lastLoadUpAt > 250) {
+          lastLoadUpAt = now;
+          loadMoreRef.current();
+        } else if (now - start > 2500) {
+          // The focus post never appeared (e.g. the page it was on could not
+          // load): fall back to an absolute scroll near the old depth.
+          window.scrollTo(0, Math.max(0, Math.min(pos.y, maxScroll)));
+          stop();
+          return;
+        }
       }
       restoreRafRef.current = requestAnimationFrame(frame);
     };
@@ -423,6 +448,14 @@ export default function HomeClient({
     const start = Date.now();
     let stableFrames = 0;
     let stopped = false;
+    let lastResizeAt = start;
+
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            lastResizeAt = Date.now();
+          })
+        : null;
 
     const stop = () => {
       if (stopped) return;
@@ -432,6 +465,7 @@ export default function HomeClient({
         cancelAnimationFrame(settleRafRef.current);
         settleRafRef.current = null;
       }
+      ro?.disconnect();
       for (const type of ["wheel", "touchstart", "pointerdown", "keydown"] as const) {
         window.removeEventListener(type, onUserInput);
       }
@@ -445,6 +479,7 @@ export default function HomeClient({
       }
       const absTop = el.getBoundingClientRect().top + window.scrollY;
       const delta = absTop - initialAbsTop;
+      if (Date.now() - lastResizeAt < 200) stableFrames = 0;
       if (Math.abs(delta) <= 1) {
         if (++stableFrames >= 8) {
           stop();
@@ -467,6 +502,11 @@ export default function HomeClient({
     window.addEventListener("touchstart", onUserInput, { passive: true });
     window.addEventListener("pointerdown", onUserInput, { passive: true });
     window.addEventListener("keydown", onUserInput);
+
+    // Content above the pinned anchor keeps growing while lazily-loaded
+    // images and prepended pages arrive; a resize restarts the quiet clock so
+    // the compensation never stops early on a half-grown page.
+    ro?.observe(document.documentElement);
 
     prependSettleRef.current = stop;
     settleRafRef.current = requestAnimationFrame(frame);
@@ -507,8 +547,6 @@ export default function HomeClient({
       loadingTopRef.current = false;
     }
   }, [buildQuery, startAnchorSettle]);
-
-  loadUpRef.current = loadUp;
 
   // Trigger the upward page load as soon as the user scrolls up (there is no
   // scroll room above the anchor page until those pages are prepended, so a
@@ -587,6 +625,15 @@ export default function HomeClient({
       setIsLoading(false);
     }
   }, [buildQuery, hasNextState]);
+
+  // Publish the loadUp/loadMore callbacks post-commit so restoreScroll's
+  // animation-frame loop always calls into committed callbacks with the
+  // current buildQuery/filter values (a render-time write could expose a
+  // callback from an abandoned render).
+  useEffect(() => {
+    loadUpRef.current = loadUp;
+    loadMoreRef.current = loadMore;
+  }, [loadUp, loadMore]);
 
   useEffect(() => {
     const node = sentinelRef.current;

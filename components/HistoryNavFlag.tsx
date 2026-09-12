@@ -42,16 +42,30 @@ export function markFeedOrigin(id: number): void {
 
 // True when a Post was opened from the Feed (rather than a direct/shared
 // link), so the in-app Back button can safely pop instead of leaving the app.
+// The stored marker is always cleared on read so a stale id from an earlier
+// visit can never match a later direct visit to the same Post.
 export function consumeFeedOrigin(id: number): boolean {
   try {
-    if (sessionStorage.getItem(FEED_ORIGIN_KEY) === String(id)) {
+    const stored = sessionStorage.getItem(FEED_ORIGIN_KEY);
+    if (stored !== null) {
       sessionStorage.removeItem(FEED_ORIGIN_KEY);
-      return true;
+      return stored === String(id);
     }
   } catch {
     // ignore storage failures
   }
   return false;
+}
+
+// Drops any leftover Feed-origin marker (e.g. the reader used browser Back
+// instead of the in-app button). Called when the Feed mounts so a stale id
+// cannot later steer a directly opened Post into router.back().
+export function clearFeedOrigin(): void {
+  try {
+    sessionStorage.removeItem(FEED_ORIGIN_KEY);
+  } catch {
+    // ignore storage failures
+  }
 }
 
 export function consumeFeedBackFlag(): boolean {
