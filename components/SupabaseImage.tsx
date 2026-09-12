@@ -16,7 +16,7 @@ export default function SupabaseImage({
   className,
   sizes,
   priority,
-  quality = 95,
+  quality = 85,
 }: SupabaseImageProps) {
   return (
     <Image
