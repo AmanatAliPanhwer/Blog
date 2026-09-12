@@ -3,6 +3,7 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { File as FileIcon, ImagePlus, Video, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import ImageLightbox from "@/components/ImageLightbox";
 
 interface FileUploaderProps {
   accept: string;
@@ -44,10 +45,10 @@ export default function FileUploader({
   return (
     <div className="space-y-2">
       {currentUrl && isImage && !file ? (
-        <img
+        <ImageLightbox
           src={currentUrl}
           alt="Current upload"
-          className="aspect-video w-full rounded-md border border-border object-cover"
+          className="aspect-video rounded-md border border-border object-cover"
         />
       ) : null}
 

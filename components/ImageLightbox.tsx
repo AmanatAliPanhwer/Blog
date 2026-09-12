@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { cn } from "@/lib/utils";
 
 interface ImageLightboxProps {
   src: string;
   alt?: string;
+  className?: string;
 }
 
 // Load ViewerJS once globally
@@ -21,14 +23,14 @@ function loadViewerJS() {
   document.head.appendChild(script);
 }
 
-export default function ImageLightbox({ src, alt }: ImageLightboxProps) {
+export default function ImageLightbox({ src, alt, className }: ImageLightboxProps) {
   const galleryRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadViewerJS();
   }, []);
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = (e: React.MouseEvent | React.KeyboardEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -57,14 +59,24 @@ export default function ImageLightbox({ src, alt }: ImageLightboxProps) {
     viewer.show();
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLImageElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      handleClick(e);
+    }
+  };
+
   return (
     <div className="gallery" ref={galleryRef}>
       <img
         src={src}
         alt={alt || "Post Image"}
-        className="image w-full cursor-zoom-in rounded-[10px]"
+        className={cn("image w-full cursor-zoom-in rounded-[10px]", className)}
         loading="lazy"
         onClick={handleClick}
+        onKeyDown={handleKeyDown}
+        role="button"
+        tabIndex={0}
+        aria-label={alt ? `View full-size image: ${alt}` : "View full-size image"}
       />
     </div>
   );
