@@ -520,6 +520,10 @@ export default function HomeClient({
     loadingTopRef.current = true;
     const anchorNode = pageElsRef.current[lowPageRef.current] ?? null;
     const anchorAbs = anchorNode ? anchorNode.getBoundingClientRect().top + window.scrollY : 0;
+    // A prepend above an anchor that sits at the document top should just show
+    // the new page: compensating would shove the reader down by the whole
+    // prepended height (and, near the bottom sentinel, cascade into loadMore).
+    const wasAtDocumentTop = window.scrollY <= 0;
     try {
       const res = await fetch(`/api/feed?${buildQuery(targetPage)}`);
       const data = await res.json();
@@ -530,7 +534,7 @@ export default function HomeClient({
         });
         lowPageRef.current = targetPage;
       }
-      if (anchorNode && !restoringRef.current) {
+      if (anchorNode && !wasAtDocumentTop && !restoringRef.current) {
         // Start correcting once the new nodes are committed; keep correcting
         // while their images lazy-load (the page height is far from final).
         // Skipped while a scroll restore is in flight: the restore loop is
@@ -588,8 +592,17 @@ export default function HomeClient({
     if (!contentReady) return;
     const node = topSentinelRef.current;
     if (!node) return;
+    let isFirstObservation = true;
     const observer = new IntersectionObserver(
       (entries) => {
+        // The observer reports the sentinel's state on observe() before any
+        // real transition; that mount-time snapshot must not count as an
+        // upward scroll, or a paged anchor (e.g. ?page=3) would auto-prepend
+        // the page above and drag the reader off the anchor page.
+        if (isFirstObservation) {
+          isFirstObservation = false;
+          return;
+        }
         if (entries[0]?.isIntersecting) loadUp();
       },
       { rootMargin: "300px 0px 0px 0px" }
