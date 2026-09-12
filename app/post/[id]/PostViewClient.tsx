@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Clock, Pencil, Trash2 } from "lucide-react";
 import type { Post } from "@/types";
 import { Button } from "@/components/ui/button";
 import ImageLightbox from "@/components/ImageLightbox";
+import { consumeFeedOrigin } from "@/components/HistoryNavFlag";
 
 const VideoPlayer = dynamic(() => import("@/components/VideoPlayer"), {
   ssr: false,
@@ -20,6 +22,11 @@ export default function PostViewClient({
   isAdmin: boolean;
 }) {
   const router = useRouter();
+  const [fromFeed, setFromFeed] = useState(false);
+
+  useEffect(() => {
+    setFromFeed(consumeFeedOrigin(post.id));
+  }, [post.id]);
 
   const handleDelete = () => {
     if (confirm("Delete this note? This cannot be undone.")) {
@@ -29,13 +36,17 @@ export default function PostViewClient({
 
   return (
     <div className="space-y-5">
-      <Link
-        href="/"
-        className="inline-flex items-center gap-1.5 font-sans text-sm text-primary transition-colors hover:underline"
+      <Button
+        variant="link"
+        onClick={() => {
+          if (fromFeed) router.back();
+          else router.replace("/");
+        }}
+        className="inline-flex items-center gap-1.5 p-0 font-sans text-sm text-primary transition-colors hover:underline"
       >
         <ArrowLeft className="size-4" />
         Back to Home
-      </Link>
+      </Button>
 
       <article className="space-y-4 rounded-[10px] border border-[#fffaff]/30 bg-card p-4 shadow-[0_4px_8px_rgba(0,255,0,0.4)] sm:p-6">
         {post.title ? (

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import SupabaseImage from "@/components/SupabaseImage";
 import VideoThumb from "@/components/VideoThumb";
+import { markFeedOrigin } from "@/components/HistoryNavFlag";
 
 interface PostCardProps {
   post: Post;
@@ -33,6 +34,7 @@ export default function PostCard({ post, isAdmin }: PostCardProps) {
     <Card className="overflow-hidden rounded-[10px] border-b border-[#fffaff] bg-card shadow-[0_4px_6px_rgba(0,255,0,0.3)]">
       <Link
         href={`/post/${post.id}`}
+        onClick={() => markFeedOrigin(post.id)}
         className="group block p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {post.title ? (
