@@ -227,18 +227,7 @@ export default function VideoPlayer({ video }: VideoPlayerProps) {
         onError={() => setFailed(true)}
       />
 
-      {status === "failed" ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 p-4 text-center text-white">
-          <TriangleAlert className="size-8 text-destructive" />
-          <p className="font-heading text-base">Processing failed</p>
-          {video.filename ? (
-            <p className="max-w-full truncate text-xs text-white/60">
-              {video.filename}
-            </p>
-          ) : null}
-        </div>
-      ) : (
-        <>
+      <>
           {!playing ? (
             <button
               type="button"
@@ -254,10 +243,16 @@ export default function VideoPlayer({ video }: VideoPlayerProps) {
 
           {!isProcessed ? (
             <span className="absolute top-2 left-2 inline-flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white/90 backdrop-blur">
-              <Loader2 className="size-3 animate-spin" />
-              {status === "queued"
-                ? "Queued for processing — playing raw file"
-                : "Processing — playing raw file"}
+              {status === "failed" ? (
+                <TriangleAlert className="size-3 text-destructive" />
+              ) : (
+                <Loader2 className="size-3 animate-spin" />
+              )}
+              {status === "failed"
+                ? "Processing failed — playing raw file"
+                : status === "queued"
+                  ? "Queued for processing — playing raw file"
+                  : "Processing — playing raw file"}
             </span>
           ) : null}
 
@@ -442,7 +437,6 @@ export default function VideoPlayer({ video }: VideoPlayerProps) {
             </div>
           </div>
         </>
-      )}
     </div>
   );
 }
