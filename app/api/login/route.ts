@@ -8,10 +8,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
-  await setAdminSession();
+  await setAdminSession(req);
 
   if (remember) {
-    await setRememberMeCookie();
+    await setRememberMeCookie(req);
   }
 
   return NextResponse.json({ ok: true });

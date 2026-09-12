@@ -1,9 +1,20 @@
 import { cookies } from "next/headers";
+import type { NextRequest } from "next/server";
 import { getSupabaseClient } from "./supabase";
 import crypto from "crypto";
 
 const COOKIE_NAME = "admin_session";
 const REMEMBER_COOKIE = "remember_me";
+
+// The Secure flag must follow the actual request transport, not NODE_ENV:
+// over plain HTTP (next start on localhost, or an http host) browsers drop
+// Secure cookies, which silently logs the Admin back out on the next request.
+export function isSecureRequest(req?: NextRequest): boolean {
+  if (!req) return process.env.NODE_ENV === "production";
+  const proto =
+    req.headers.get("x-forwarded-proto") || req.nextUrl.protocol;
+  return proto.split(",")[0].trim().includes("https");
+}
 
 export function getAdminCredentials() {
   return {
@@ -61,13 +72,15 @@ async function hasValidRememberToken(): Promise<boolean> {
 // Write-safe persistent-login restoration. Next.js only allows cookie writes
 // from Server Actions and Route Handlers, so this is called exclusively from
 // the /api/restore-session route handler — never from getSession.
-export async function restorePersistentSession(): Promise<boolean> {
+export async function restorePersistentSession(
+  req?: NextRequest,
+): Promise<boolean> {
   const cookieStore = await cookies();
   if (cookieStore.get(COOKIE_NAME)?.value) return true;
 
   const restored = await hasValidRememberToken();
   if (restored) {
-    await setAdminSession();
+    await setAdminSession(req);
     return true;
   }
 
@@ -75,11 +88,11 @@ export async function restorePersistentSession(): Promise<boolean> {
   return false;
 }
 
-export async function setAdminSession(): Promise<void> {
+export async function setAdminSession(req?: NextRequest): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, "true", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecureRequest(req),
     sameSite: "lax",
     maxAge: 60 * 60 * 24 * 30,
     path: "/",
@@ -89,10 +102,9 @@ export async function setAdminSession(): Promise<void> {
 export async function clearSession(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete(COOKIE_NAME);
-  cookieStore.delete(REMEMBER_COOKIE);
 }
 
-export async function setRememberMeCookie(): Promise<string> {
+export async function setRememberMeCookie(req?: NextRequest): Promise<string> {
   const token = crypto.randomUUID();
   const hashedToken = crypto
     .createHash("sha256")
@@ -110,7 +122,7 @@ export async function setRememberMeCookie(): Promise<string> {
   const cookieStore = await cookies();
   cookieStore.set(REMEMBER_COOKIE, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecureRequest(req),
     sameSite: "lax",
     maxAge: 30 * 24 * 60 * 60,
     path: "/",
