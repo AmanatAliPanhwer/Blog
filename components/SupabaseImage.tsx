@@ -7,6 +7,7 @@ interface SupabaseImageProps {
   className?: string;
   sizes: string;
   priority?: boolean;
+  quality?: number;
 }
 
 export default function SupabaseImage({
@@ -15,6 +16,7 @@ export default function SupabaseImage({
   className,
   sizes,
   priority,
+  quality = 85,
 }: SupabaseImageProps) {
   return (
     <Image
@@ -23,6 +25,7 @@ export default function SupabaseImage({
       fill
       sizes={sizes}
       priority={priority}
+      quality={quality}
       className={cn("object-cover", className)}
     />
   );

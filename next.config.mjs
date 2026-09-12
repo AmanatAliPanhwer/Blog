@@ -15,6 +15,7 @@ try {
 const nextConfig = {
   images: {
     remotePatterns,
+    qualities: [75, 85],
   },
   experimental: {
     serverActions: {
