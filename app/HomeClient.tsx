@@ -683,13 +683,13 @@ export default function HomeClient({
       (entries) => {
         const entry = entries[0];
         if (!entry) return;
-        // Same as the top sentinel: the observer reports the sentinel's
-        // state on observe() before any real transition. Ignoring it stops
-        // an arrival (restore or a deep page load) whose viewport is already
-        // near the bottom from auto-loading every page down to the end.
+        // The observer reports the sentinel's state on observe() before any
+        // real transition. Ignore that mount-time snapshot for a deep anchor
+        // or when the sentinel is outside the margin, but let page one fill
+        // a short initial viewport through the normal loadMore flow.
         if (isFirstObservation) {
           isFirstObservation = false;
-          return;
+          if (!entry.isIntersecting || highPageRef.current !== 1) return;
         }
         // While a scroll restore is in flight the restore loop loads exactly
         // the pages it needs; the sentinel firing in parallel would race it
