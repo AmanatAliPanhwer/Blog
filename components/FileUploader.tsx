@@ -45,7 +45,11 @@ export default function FileUploader({
   return (
     <div className="space-y-2">
       {currentUrl && isImage && !file ? (
-        <ImageLightbox src={currentUrl} alt="Current upload" />
+        <ImageLightbox
+          src={currentUrl}
+          alt="Current upload"
+          className="aspect-video rounded-md border border-border object-cover"
+        />
       ) : null}
 
       <div
