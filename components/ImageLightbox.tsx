@@ -30,7 +30,7 @@ export default function ImageLightbox({ src, alt, className }: ImageLightboxProp
     loadViewerJS();
   }, []);
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = (e: React.MouseEvent | React.KeyboardEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -59,6 +59,12 @@ export default function ImageLightbox({ src, alt, className }: ImageLightboxProp
     viewer.show();
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLImageElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      handleClick(e);
+    }
+  };
+
   return (
     <div className="gallery" ref={galleryRef}>
       <img
@@ -67,6 +73,10 @@ export default function ImageLightbox({ src, alt, className }: ImageLightboxProp
         className={cn("image w-full cursor-zoom-in rounded-[10px]", className)}
         loading="lazy"
         onClick={handleClick}
+        onKeyDown={handleKeyDown}
+        role="button"
+        tabIndex={0}
+        aria-label={alt ? `View full-size image: ${alt}` : "View full-size image"}
       />
     </div>
   );
