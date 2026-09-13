@@ -51,11 +51,18 @@ export default function SiteHeader({ isAdmin }: { isAdmin: boolean }) {
                   New Post
                 </Link>
               </Button>
-              <Button asChild variant="link" size="sm">
-                <Link href="/logout">
-                  <LogOut />
-                  Logout
-                </Link>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                onClick={async () => {
+                  await fetch("/logout", { method: "POST" });
+                  router.push("/");
+                  router.refresh();
+                }}
+              >
+                <LogOut />
+                Logout
               </Button>
             </>
           ) : (
