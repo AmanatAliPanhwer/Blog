@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { getFeed, getFilterOptions } from "@/lib/posts";
 import { getSession } from "@/lib/auth";
-import { DiagPanel, requestDiag } from "@/lib/diag.tsx";
+import { DiagPanel, requestDiag } from "@/lib/diag";
 import HomeClient from "./HomeClient";
 
 interface Props {

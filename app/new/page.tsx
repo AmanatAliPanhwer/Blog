@@ -1,6 +1,6 @@
 import PostEditor from "@/components/PostEditor";
 import { getSession } from "@/lib/auth";
-import { DiagPanel, requestDiag } from "@/lib/diag.tsx";
+import { DiagPanel, requestDiag } from "@/lib/diag";
 
 export default async function NewPostPage() {
   const session = await getSession();
