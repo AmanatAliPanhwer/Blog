@@ -58,6 +58,8 @@ export async function requestDiag() {
     fetch: {
       rsc: h.get("rsc"),
       purpose: h.get("purpose"),
+      accept: h.get("accept"),
+      priority: h.get("priority"),
       secFetchSite: h.get("sec-fetch-site"),
       secFetchMode: h.get("sec-fetch-mode"),
       secFetchDest: h.get("sec-fetch-dest"),
