@@ -1,10 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { SESSION_COOKIE } from "@/lib/auth";
 
 export async function POST() {
-  const res = NextResponse.redirect(
-    new URL("/", process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000")
-  );
+  const res = NextResponse.json({ ok: true });
   res.cookies.delete(SESSION_COOKIE);
   return res;
 }
