@@ -9,7 +9,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
-  const res = NextResponse.json({ ok: true });
-  res.cookies.set(adminSessionCookie(req));
+  const cookie = adminSessionCookie(req);
+  const res = NextResponse.json({
+    ok: true,
+    debug: {
+      cookie: {
+        name: cookie.name,
+        path: cookie.path,
+        secure: cookie.secure,
+        sameSite: cookie.sameSite,
+        maxAgeSeconds: cookie.maxAge,
+        expiresAtMs: Date.now() + cookie.maxAge * 1000,
+      },
+    },
+  });
+  res.cookies.set(cookie);
   return res;
 }

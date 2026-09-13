@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { getFeed, getFilterOptions } from "@/lib/posts";
 import { getSession } from "@/lib/auth";
+import { DiagPanel, requestDiag } from "@/lib/diag.tsx";
 import HomeClient from "./HomeClient";
 
 interface Props {
@@ -31,6 +32,8 @@ export default async function HomePage({ searchParams }: Props) {
 
   const filterKey = `${sp.q ?? ""}|${sp.year ?? ""}|${sp.month ?? ""}|${sp.day ?? ""}`;
 
+  const diag = await requestDiag();
+
   return (
     <Suspense>
       <HomeClient
@@ -43,6 +46,7 @@ export default async function HomePage({ searchParams }: Props) {
         isAdmin={isAdmin}
         page={page}
       />
+      <DiagPanel diag={diag} />
     </Suspense>
   );
 }
