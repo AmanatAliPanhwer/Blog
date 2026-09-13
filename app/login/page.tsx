@@ -21,7 +21,6 @@ export default function LoginPage() {
     const data = {
       username: (form.elements.namedItem("username") as HTMLInputElement).value,
       password: (form.elements.namedItem("password") as HTMLInputElement).value,
-      remember: (form.elements.namedItem("remember") as HTMLInputElement).checked,
     };
 
     const res = await fetch("/api/login", {
@@ -62,14 +61,9 @@ export default function LoginPage() {
           <Label htmlFor="password">Password</Label>
           <Input id="password" name="password" type="password" required />
         </div>
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <input
-            type="checkbox"
-            name="remember"
-            className="size-4 accent-primary"
-          />
-          Remember me
-        </label>
+        <p className="text-sm text-muted-foreground">
+          You'll stay signed in on this device.
+        </p>
 
         {error ? (
           <p className="text-sm text-destructive">{error}</p>
