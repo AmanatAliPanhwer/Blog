@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import SupabaseImage from "@/components/SupabaseImage";
 import VideoThumb from "@/components/VideoThumb";
+import Timestamp from "@/components/Timestamp";
 import { markFeedOrigin } from "@/components/HistoryNavFlag";
 
 interface PostCardProps {
@@ -63,7 +64,7 @@ export default function PostCard({ post, isAdmin }: PostCardProps) {
 
         <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
           <Clock className="size-3" />
-          {post.formatted_timestamp || "—"}
+          <Timestamp iso={post.timestamp} label={post.formatted_timestamp} />
         </p>
       </Link>
 
