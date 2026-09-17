@@ -26,7 +26,10 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your-password
 SESSION_SECRET=random-secret
+BLOG_TIMEZONE=Asia/Karachi
 ```
+
+`BLOG_TIMEZONE` is an IANA timezone name used for Archive Filter grouping and the server-rendered fallback timestamp; Post timestamps in the Feed render in each visitor's own timezone regardless. Omit it to default to `Asia/Karachi`.
 
 ### Development
 
