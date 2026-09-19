@@ -98,6 +98,30 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (m) => `\\${m}`);
 }
 
+/**
+ * Parse a civil date component from an Archive Filter value.
+ * Returns null for absent/"any" values and for anything that is not a finite
+ * integer in the valid range for that component, so callers never feed
+ * garbage into zonedCivilRangeUtc (whose Date.UTC normalizes e.g. month 13 or
+ * day 32 instead of rejecting them).
+ */
+function parseCivilPart(
+  value: string | null | undefined,
+  kind: "year" | "month" | "day"
+): number | null {
+  if (value == null || value === "any") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) return null;
+  if (kind === "year") return n >= 100 && n <= 9999 ? n : null;
+  if (kind === "month") return n >= 1 && n <= 12 ? n : null;
+  return n >= 1 ? n : null;
+}
+
+/** Days in a given (year, 1-based month), accounting for leap years. */
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
 function applyFilters(
   query: /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ any,
   params: FilterParams & { q?: string }
@@ -110,19 +134,32 @@ function applyFilters(
   // Months/days without an explicit year fall back to the current civil day in
   // BLOG_TIMEZONE, matching how the FilterPanel behaves standalone.
   const today = zonedYearMonthDay(new Date());
-  const cy = year && year !== "any" ? Number(year) : today.year;
-  const cm = month && month !== "any" ? Number(month) : today.month;
-  if (year && year !== "any") {
-    const { gte, lt } = zonedCivilRangeUtc(cy);
+  const explicitYear = !!year && year !== "any";
+  const explicitMonth = !!month && month !== "any";
+  const explicitDay = !!day && day !== "any";
+  const cy = explicitYear ? parseCivilPart(year, "year") : null;
+  const cm = explicitMonth ? parseCivilPart(month, "month") : null;
+  const nd = explicitDay ? parseCivilPart(day, "day") : null;
+  // A filter value that is present but invalid means the whole archive
+  // constraint is unreliable — drop it rather than building a wrong range.
+  if ((explicitYear && cy == null) || (explicitMonth && cm == null) || (explicitDay && nd == null)) {
+    return query;
+  }
+  const effYear = cy ?? today.year;
+  const effMonth = cm ?? today.month;
+  if (nd != null && nd > daysInMonth(effYear, effMonth)) {
+    return query;
+  }
+  if (explicitYear) {
+    const { gte, lt } = zonedCivilRangeUtc(effYear);
     query = query.gte(TIMESTAMP_FIELD, gte.toISOString()).lt(TIMESTAMP_FIELD, lt.toISOString());
   }
-  if (month && month !== "any") {
-    const { gte, lt } = zonedCivilRangeUtc(cy, cm);
+  if (explicitMonth) {
+    const { gte, lt } = zonedCivilRangeUtc(effYear, effMonth);
     query = query.gte(TIMESTAMP_FIELD, gte.toISOString()).lt(TIMESTAMP_FIELD, lt.toISOString());
   }
-  if (day && day !== "any") {
-    const nd = day ? Number(day) : today.day;
-    const { gte, lt } = zonedCivilRangeUtc(cy, cm, nd);
+  if (explicitDay) {
+    const { gte, lt } = zonedCivilRangeUtc(effYear, effMonth, nd);
     query = query.gte(TIMESTAMP_FIELD, gte.toISOString()).lt(TIMESTAMP_FIELD, lt.toISOString());
   }
   return query;

@@ -81,6 +81,7 @@ function zonedOffsetMinutes(tz, date) {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
+    hourCycle: "h23",
   });
   const map = new Map(
     fmt
@@ -88,16 +89,15 @@ function zonedOffsetMinutes(tz, date) {
       .filter((p) => p.type !== "literal")
       .map((p) => [p.type, p.value])
   );
+  // hourCycle h23 reports midnight as "00" on its own day. If an engine emits
+  // "24" instead, in h24 semantics that still means the start of that day, so
+  // the day must not be incremented while reconstructing the civil wall time.
   let hour = Number(map.get("hour") ?? 0);
-  let day = Number(map.get("day") ?? 1);
-  if (map.get("hour") === "24") {
-    hour = 0;
-    day += 1;
-  }
+  if (map.get("hour") === "24") hour = 0;
   const asUtc = Date.UTC(
     Number(map.get("year") ?? 0),
     (Number(map.get("month") ?? 1) || 1) - 1,
-    day,
+    Number(map.get("day") ?? 1),
     hour,
     Number(map.get("minute") ?? 0),
     Number(map.get("second") ?? 0)
@@ -155,6 +155,10 @@ async function main() {
   const from = args.from;
   if (from && args.adjust != null) {
     console.error("--from and --adjust are mutually exclusive");
+    process.exit(1);
+  }
+  if (args.adjust != null && !Number.isFinite(args.adjust)) {
+    console.error(`--adjust must be a finite number of hours, got "${args.adjust}"`);
     process.exit(1);
   }
   console.log(

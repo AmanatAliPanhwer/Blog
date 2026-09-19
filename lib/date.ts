@@ -26,6 +26,7 @@ const FULL_HOUR24 = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
   second: "2-digit",
   hour12: false,
+  hourCycle: "h23",
 });
 
 const FULL_HOUR12 = new Intl.DateTimeFormat("en-US", {
@@ -60,17 +61,15 @@ function partsAsMap(
 /** UTC offset (minutes) of `date`'s wall time in BLOG_TIMEZONE. */
 function zonedOffsetMinutes(date: Date): number {
   const map = partsAsMap(FULL_HOUR24, date);
+  // hourCycle h23 reports midnight as "00" on its own day. Some engines emit
+  // "24" instead; in h24 semantics that still means the start of that day, so
+  // the day must not be incremented while reconstructing the civil wall time.
   let hour = Number(map.get("hour") ?? 0);
-  let day = Number(map.get("day") ?? 1);
-  // en-US with hour12:false reports midnight as "24" on the current day.
-  if (map.get("hour") === "24") {
-    hour = 0;
-    day += 1;
-  }
+  if (map.get("hour") === "24") hour = 0;
   const asUtc = Date.UTC(
     Number(map.get("year") ?? 0),
     (Number(map.get("month") ?? 1) || 1) - 1,
-    day,
+    Number(map.get("day") ?? 1),
     hour,
     Number(map.get("minute") ?? 0),
     Number(map.get("second") ?? 0)
