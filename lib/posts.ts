@@ -3,33 +3,22 @@ import { getSupabaseClient, TIMESTAMP_FIELD, POSTS_PER_PAGE, BLOG_IMAGES_BUCKET,
 import { Post, PostRaw, FilterParams } from "@/types";
 import { cache } from "react";
 import { sanitizePostHtml } from "./sanitize";
+import {
+  formatBlogTimestamp,
+  nowUtcIso,
+  parseStoredTimestamp,
+  zonedCivilRangeUtc,
+  zonedYearMonthDay,
+} from "./date";
 
 export { sanitizePostHtml };
 
 const SELECT_FIELDS = `id, title, content, image, ${TIMESTAMP_FIELD}, video_id`;
 
+/** Server/SSR fallback rendering of a stored value in BLOG_TIMEZONE. */
 function formatTimestamp(ts: string | null | undefined): string {
-  if (!ts) return "";
-  try {
-    const dt = new Date(ts);
-    const year = dt.getFullYear();
-    const month = String(dt.getMonth() + 1).padStart(2, "0");
-    const day = String(dt.getDate()).padStart(2, "0");
-    const hours = dt.getHours();
-    const minutes = String(dt.getMinutes()).padStart(2, "0");
-    const ampm = hours >= 12 ? "PM" : "AM";
-    const h12 = hours % 12 || 12;
-    return `${year}-${month}-${day} ${h12}:${minutes} ${ampm}`;
-  } catch {
-    return String(ts);
-  }
-}
-
-function getLocalTimestamp(): string {
-  const now = new Date();
-  const offset = now.getTimezoneOffset();
-  const local = new Date(now.getTime() - offset * 60000);
-  return local.toISOString().slice(0, 19).replace("T", " ");
+  const dt = parseStoredTimestamp(ts);
+  return dt ? formatBlogTimestamp(dt) : "";
 }
 
 interface VideoInfo {
@@ -77,6 +66,7 @@ async function enrichPosts(rawPosts: PostRaw[]): Promise<Post[]> {
   return rawPosts.map((post) => {
     const ts = post[TIMESTAMP_FIELD] as string | null;
     const videoId = post.video_id as number | null;
+    const dt = parseStoredTimestamp(ts);
     return {
       id: post.id,
       title: post.title,
@@ -84,8 +74,8 @@ async function enrichPosts(rawPosts: PostRaw[]): Promise<Post[]> {
       content_safe: sanitizePostHtml(post.content),
       image: post.image,
       video_id: videoId,
-      timestamp: ts ?? undefined,
-      formatted_timestamp: formatTimestamp(ts),
+      timestamp: dt ? dt.toISOString() : undefined,
+      formatted_timestamp: dt ? formatBlogTimestamp(dt) : "",
       video: videoId ? videos.get(videoId) || null : null,
     };
   });
@@ -108,6 +98,30 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (m) => `\\${m}`);
 }
 
+/**
+ * Parse a civil date component from an Archive Filter value.
+ * Returns null for absent/"any" values and for anything that is not a finite
+ * integer in the valid range for that component, so callers never feed
+ * garbage into zonedCivilRangeUtc (whose Date.UTC normalizes e.g. month 13 or
+ * day 32 instead of rejecting them).
+ */
+function parseCivilPart(
+  value: string | null | undefined,
+  kind: "year" | "month" | "day"
+): number | null {
+  if (value == null || value === "any") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) return null;
+  if (kind === "year") return n >= 100 && n <= 9999 ? n : null;
+  if (kind === "month") return n >= 1 && n <= 12 ? n : null;
+  return n >= 1 ? n : null;
+}
+
+/** Days in a given (year, 1-based month), accounting for leap years. */
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
 function applyFilters(
   query: /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ any,
   params: FilterParams & { q?: string }
@@ -117,37 +131,36 @@ function applyFilters(
     const escaped = escapeLike(q.trim());
     query = query.or(`title.ilike.%${escaped}%,content.ilike.%${escaped}%`);
   }
-  if (year && year !== "any") {
-    query = query
-      .gte(TIMESTAMP_FIELD, `${year}-01-01T00:00:00Z`)
-      .lt(TIMESTAMP_FIELD, `${Number(year) + 1}-01-01T00:00:00Z`);
+  // Months/days without an explicit year fall back to the current civil day in
+  // BLOG_TIMEZONE, matching how the FilterPanel behaves standalone.
+  const today = zonedYearMonthDay(new Date());
+  const explicitYear = !!year && year !== "any";
+  const explicitMonth = !!month && month !== "any";
+  const explicitDay = !!day && day !== "any";
+  const cy = explicitYear ? parseCivilPart(year, "year") : null;
+  const cm = explicitMonth ? parseCivilPart(month, "month") : null;
+  const nd = explicitDay ? parseCivilPart(day, "day") : null;
+  // A filter value that is present but invalid means the whole archive
+  // constraint is unreliable — drop it rather than building a wrong range.
+  if ((explicitYear && cy == null) || (explicitMonth && cm == null) || (explicitDay && nd == null)) {
+    return query;
   }
-  if (month && month !== "any") {
-    const cy = year && year !== "any" ? year : String(new Date().getFullYear());
-    const nm = Number(month) + 1;
-    const ny = nm > 12 ? Number(cy) + 1 : Number(cy);
-    const fm = nm > 12 ? "01" : String(nm).padStart(2, "0");
-    query = query
-      .gte(TIMESTAMP_FIELD, `${cy}-${month.padStart(2, "0")}-01T00:00:00Z`)
-      .lt(TIMESTAMP_FIELD, `${ny}-${fm}-01T00:00:00Z`);
+  const effYear = cy ?? today.year;
+  const effMonth = cm ?? today.month;
+  if (nd != null && nd > daysInMonth(effYear, effMonth)) {
+    return query;
   }
-  if (day && day !== "any") {
-    const cy = year && year !== "any" ? year : String(new Date().getFullYear());
-    const cm = month && month !== "any" ? month : String(new Date().getMonth() + 1);
-    const nd = Number(day) + 1;
-    let ndMonth = Number(cm);
-    let ndYear = Number(cy);
-    if (nd > 28) {
-      try {
-        new Date(Number(cy), Number(cm) - 1, nd);
-      } catch {
-        ndMonth++;
-        if (ndMonth > 12) { ndMonth = 1; ndYear++; }
-      }
-    }
-    query = query
-      .gte(TIMESTAMP_FIELD, `${cy}-${cm.padStart(2, "0")}-${day.padStart(2, "0")}T00:00:00Z`)
-      .lt(TIMESTAMP_FIELD, `${ndYear}-${String(ndMonth).padStart(2, "0")}-${String(nd).padStart(2, "0")}T00:00:00Z`);
+  if (explicitYear) {
+    const { gte, lt } = zonedCivilRangeUtc(effYear);
+    query = query.gte(TIMESTAMP_FIELD, gte.toISOString()).lt(TIMESTAMP_FIELD, lt.toISOString());
+  }
+  if (explicitMonth) {
+    const { gte, lt } = zonedCivilRangeUtc(effYear, effMonth);
+    query = query.gte(TIMESTAMP_FIELD, gte.toISOString()).lt(TIMESTAMP_FIELD, lt.toISOString());
+  }
+  if (explicitDay) {
+    const { gte, lt } = zonedCivilRangeUtc(effYear, effMonth, nd);
+    query = query.gte(TIMESTAMP_FIELD, gte.toISOString()).lt(TIMESTAMP_FIELD, lt.toISOString());
   }
   return query;
 }
@@ -200,11 +213,23 @@ export const getFilterOptions = cache(async (): Promise<{ years: string[]; month
     .map((r: Record<string, unknown>) => r[TIMESTAMP_FIELD] as string)
     .filter(Boolean);
 
-  const years = Array.from(new Set(vals.map((v) => new Date(v).getFullYear().toString()))).sort((a, b) => Number(b) - Number(a));
-  const months = Array.from(new Set(vals.map((v) => String(new Date(v).getMonth() + 1).padStart(2, "0")))).sort();
-  const days = Array.from(new Set(vals.map((v) => String(new Date(v).getDate()).padStart(2, "0")))).sort();
+  const days = new Set<string>();
+  const months = new Set<string>();
+  const years = new Set<string>();
+  for (const v of vals) {
+    const dt = parseStoredTimestamp(v);
+    if (!dt) continue;
+    const zd = zonedYearMonthDay(dt);
+    years.add(String(zd.year));
+    months.add(String(zd.month).padStart(2, "0"));
+    days.add(String(zd.day).padStart(2, "0"));
+  }
 
-  return { years, months, days };
+  return {
+    years: Array.from(years).sort((a, b) => Number(b) - Number(a)),
+    months: Array.from(months).sort(),
+    days: Array.from(days).sort(),
+  };
 });
 
 export const getPostById = cache(async (postId: number): Promise<Post | null> => {
@@ -238,7 +263,7 @@ export async function createPost(title: string, content: string, imageUrl: strin
         title,
         content,
         image: imageUrl,
-        timestamp: getLocalTimestamp(),
+        timestamp: nowUtcIso(),
         video_id: videoId,
       });
       return;

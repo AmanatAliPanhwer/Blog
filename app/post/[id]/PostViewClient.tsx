@@ -8,6 +8,7 @@ import { ArrowLeft, Clock, Pencil, Trash2 } from "lucide-react";
 import type { Post } from "@/types";
 import { Button } from "@/components/ui/button";
 import ImageLightbox from "@/components/ImageLightbox";
+import Timestamp from "@/components/Timestamp";
 import { consumeFeedOrigin } from "@/components/HistoryNavFlag";
 
 const VideoPlayer = dynamic(() => import("@/components/VideoPlayer"), {
@@ -58,7 +59,7 @@ export default function PostViewClient({
         <p className="flex items-center gap-1.5 font-sans text-sm text-muted-foreground">
           <Clock className="size-4" />
           <strong className="text-foreground">Published:</strong>{" "}
-          {post.formatted_timestamp || "—"}
+          <Timestamp iso={post.timestamp} label={post.formatted_timestamp} />
         </p>
 
         <div
