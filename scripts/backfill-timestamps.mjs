@@ -9,6 +9,7 @@
  * Usage:
  *   node scripts/backfill-timestamps.mjs                 # dry run (no writes)
  *   node scripts/backfill-timestamps.mjs --apply         # write the changes
+ *   node scripts/backfill-timestamps.mjs --adjust=5 --apply
  *   node scripts/backfill-timestamps.mjs --from=Asia/Karachi --apply
  *
  * Modes:
@@ -19,6 +20,11 @@
  *              given IANA zone and convert it to UTC. Use this when posts were
  *              authored from a machine in a non-UTC timezone; it shifts every
  *              row by that zone's offset.
+ *   --adjust=  shift every stored instant by a fixed signed number of hours
+ *              (e.g. --adjust=5 moves all Post times 5 hours later). Use this
+ *              when the stored instants are known to be a constant offset off
+ *              (for this blog, confirmed ~5h too early). Mutually exclusive
+ *              with --from.
  *
  * Reads SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (fallback SUPABASE_ANON_KEY)
  * from .env.local / .env. Requires the @supabase/supabase-js dependency.
@@ -52,11 +58,12 @@ function loadEnv() {
 }
 
 function parseArgs(argv) {
-  const args = { apply: false, from: null };
+  const args = { apply: false, from: null, adjust: null };
   for (const a of argv) {
     if (a === "--apply") args.apply = true;
     else if (a.startsWith("--from=")) args.from = a.slice("--from=".length) || null;
     else if (a === "--from") args.from = null;
+    else if (/^--adjust=/.test(a)) args.adjust = Number(a.slice("--adjust=".length));
     else if (a === "-h" || a === "--help") args.help = true;
   }
   return args;
@@ -111,6 +118,22 @@ function civilInTzAsUtcIso(tz, y, m, d, hh, mm, ss) {
   return new Date(utc).toISOString();
 }
 
+function kt(iso) {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Karachi",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
@@ -130,7 +153,19 @@ async function main() {
   }
 
   const from = args.from;
-  console.log(`Mode:   ${from ? `reinterpret (${from})` : "normalize (no shift)"}`);
+  if (from && args.adjust != null) {
+    console.error("--from and --adjust are mutually exclusive");
+    process.exit(1);
+  }
+  console.log(
+    `Mode:   ${
+      args.adjust != null
+        ? `adjust (${args.adjust >= 0 ? "+" : ""}${args.adjust}h)`
+        : from
+          ? `reinterpret (${from})`
+          : "normalize (no shift)"
+    }`
+  );
   console.log(`Apply:  ${args.apply ? "YES — writes to the database" : "dry run (no writes)"}\n`);
 
   const client = createClient(url, key);
@@ -157,9 +192,11 @@ async function main() {
       continue;
     }
     const [, y, mo, d, hh, mm, ss] = m.map(Number);
-    const proposed = from
-      ? civilInTzAsUtcIso(from, y, mo, d, hh, mm, ss)
-      : civilAsUtcIso(y, mo, d, hh, mm, ss);
+    const proposed = args.adjust != null
+      ? new Date(Date.UTC(y, mo - 1, d, hh, mm, ss) + args.adjust * 3600000).toISOString()
+      : from
+        ? civilInTzAsUtcIso(from, y, mo, d, hh, mm, ss)
+        : civilAsUtcIso(y, mo, d, hh, mm, ss);
 
     // Compare the civil time that would be stored (DB datetime columns round
     // trip through the UTC session as civil strings), so identical civics are
@@ -173,7 +210,7 @@ async function main() {
 
   console.log(`Processed ${data.length} post(s), ${changes.length} would change.\n`);
   for (const c of changes.slice(0, 20)) {
-    console.log(`  #${c.id}  ${c.old}  ->  ${c.new}`);
+    console.log(`  #${c.id}  ${c.old}  (shows ${kt(c.old)})  ->  ${c.new}  (shows ${kt(c.new)})`);
   }
   if (changes.length > 20) console.log(`  ... and ${changes.length - 20} more`);
 
