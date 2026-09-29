@@ -1,22 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createPost, updatePost } from "@/lib/posts";
+import { sanitizePostHtml } from "@/lib/sanitize";
 import { getSession } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
   const session = await getSession();
   if (session !== "true") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { title, content, imageUrl, videoId } = body;
+  const { title, content, imageUrl, videoId } = await req.json();
 
   if (!content) {
     return NextResponse.json({ error: "Content is required" }, { status: 400 });
   }
 
   try {
-    await createPost(title, content, imageUrl || null, videoId || null);
+    // Sanitize on write so the stored body is already clean HTML.
+    await createPost(
+      title || "",
+      sanitizePostHtml(content),
+      imageUrl || null,
+      videoId || null
+    );
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
@@ -35,11 +41,16 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Invalid post ID" }, { status: 400 });
   }
 
-  const body = await req.json();
-  const { title, content, imageUrl, videoId } = body;
+  const { title, content, imageUrl, videoId } = await req.json();
 
   try {
-    await updatePost(postId, title || "", content || "", imageUrl || null, videoId || null);
+    await updatePost(
+      postId,
+      title || "",
+      sanitizePostHtml(content || ""),
+      imageUrl || null,
+      videoId || null
+    );
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

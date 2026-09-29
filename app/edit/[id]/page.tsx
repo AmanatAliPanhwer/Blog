@@ -25,7 +25,15 @@ export default async function EditPostPage({ params }: Props) {
       initialTitle={post.title}
       initialContent={post.content}
       initialImage={post.image ?? null}
-      initialVideoId={post.video_id ?? null}
+      initialVideo={
+        post.video
+          ? {
+              id: post.video.id,
+              url: post.video.url ?? null,
+              status: post.video.status ?? "queued",
+            }
+          : null
+      }
       backHref={`/post/${post.id}`}
     />
   );

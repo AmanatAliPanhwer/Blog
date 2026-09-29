@@ -268,7 +268,7 @@ export async function deletePost(postId: number): Promise<void> {
   if (error) throw error;
 }
 
-export async function uploadImage(file: File): Promise<string | null> {
+export async function uploadImage(file: File): Promise<string> {
   const filename = `${crypto.randomUUID()}.${file.name.split(".").pop()}`;
   const bytes = await file.arrayBuffer();
 
@@ -278,20 +278,21 @@ export async function uploadImage(file: File): Promise<string | null> {
       contentType: file.type,
     });
 
+  const SUPABASE_URL = process.env.SUPABASE_URL || "";
+  const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${BLOG_IMAGES_BUCKET}/${filename}`;
+
   if (error) {
-    if (String(error).includes("409")) {
-      const SUPABASE_URL = process.env.SUPABASE_URL || "";
-      return `${SUPABASE_URL}/storage/v1/object/public/${BLOG_IMAGES_BUCKET}/${filename}`;
-    }
+    // A 409 means the generated name is already taken. The object is there and
+    // ours to serve, so the URL is still correct.
+    if (String(error).includes("409")) return publicUrl;
     console.error("Error uploading image:", error);
-    return null;
+    throw new Error("Image upload failed");
   }
 
-  const SUPABASE_URL = process.env.SUPABASE_URL || "";
-  return `${SUPABASE_URL}/storage/v1/object/public/${BLOG_IMAGES_BUCKET}/${filename}`;
+  return publicUrl;
 }
 
-export async function saveVideo(file: File): Promise<{ file_id: number } | null> {
+export async function saveVideo(file: File): Promise<{ file_id: number; filepath: string }> {
   const filename = `${crypto.randomUUID()}.${file.name.split(".").pop()}`;
   const bytes = await file.arrayBuffer();
 
@@ -303,7 +304,7 @@ export async function saveVideo(file: File): Promise<{ file_id: number } | null>
 
   if (uploadError) {
     console.error("Error uploading video:", uploadError);
-    return null;
+    throw new Error("Video upload failed");
   }
 
   const SUPABASE_URL = process.env.SUPABASE_URL || "";
@@ -317,7 +318,7 @@ export async function saveVideo(file: File): Promise<{ file_id: number } | null>
 
   if (insertError) {
     console.error("Error inserting video record:", insertError);
-    return null;
+    throw new Error("Could not queue the video for processing");
   }
 
   const { data } = await getSupabaseClient()
@@ -326,7 +327,7 @@ export async function saveVideo(file: File): Promise<{ file_id: number } | null>
     .eq("filepath", filepath)
     .single();
 
-  if (!data) return null;
+  if (!data) throw new Error("Could not read back the queued video");
 
   // Queue for processing (fire-and-forget to external ffmpeg service)
   try {
@@ -338,5 +339,5 @@ export async function saveVideo(file: File): Promise<{ file_id: number } | null>
     // fire and forget
   }
 
-  return { file_id: data.id };
+  return { file_id: data.id, filepath };
 }

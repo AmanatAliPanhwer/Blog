@@ -204,6 +204,61 @@
     @apply font-heading line-clamp-2;
   }
 
+  /* The rich text editor's writing surface. Same Post Body markup, plus the
+     affordances that only make sense while writing: a caret, a drop target,
+     and images you can still describe. */
+  .post-editor-surface .tiptap {
+    @apply min-h-64;
+  }
+  .post-editor-surface .tiptap > * + * {
+    @apply mt-2;
+  }
+  .post-editor-surface .tiptap p.is-empty::before,
+  .post-editor-surface .tiptap p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    @apply pointer-events-none float-left h-0 text-muted-foreground/60;
+  }
+  .post-editor-surface .tiptap img {
+    @apply max-h-96 w-auto;
+  }
+  .post-editor-surface .tiptap img.ProseMirror-selectednode {
+    @apply ring-2 ring-primary;
+  }
+  .post-editor-surface .tiptap a {
+    @apply cursor-pointer;
+  }
+  .post-editor-surface .tiptap code {
+    @apply rounded bg-muted px-1.5 py-0.5 font-mono text-[0.8em];
+  }
+  .post-editor-surface .tiptap pre {
+    @apply overflow-x-auto rounded-lg bg-muted p-3 font-mono text-xs;
+  }
+  .post-editor-surface .tiptap pre code {
+    @apply bg-transparent p-0;
+  }
+  .post-editor-surface .tiptap hr {
+    @apply my-4 border-border;
+  }
+  .post-editor-surface .tiptap blockquote {
+    @apply border-l-2 border-primary pl-3 text-muted-foreground italic;
+  }
+  .post-editor-surface .tiptap :is(ul, ol) {
+    @apply my-2 pl-5;
+  }
+  .post-editor-surface .tiptap ul {
+    @apply list-disc;
+  }
+  .post-editor-surface .tiptap ol {
+    @apply list-decimal;
+  }
+  .post-editor-surface .tiptap :is(h1, h2, h3) {
+    @apply font-heading font-bold text-foreground;
+  }
+  /* While writing, a void node must never swallow the caret. */
+  .post-editor-surface .tiptap img.ProseMirror-separator {
+    @apply h-px w-full border-none bg-border;
+  }
+
   /* Video player range sliders. */
   .range {
     @apply h-1.5 cursor-pointer appearance-none rounded-full;

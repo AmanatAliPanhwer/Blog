@@ -10,7 +10,7 @@ _Avoid_: Platform, publication, site
 **Post**: a single journal entry. Has an optional title, an HTML body, an optional image, and an optional video. Identified by a numeric id and has a single timestamp.
 _Avoid_: Article, entry
 
-**Post Body**: the content of a Post. Authored as HTML in a plain textarea and stored as HTML.
+**Post Body**: the content of a Post. Stored as HTML. Authored in a rich text editor that can write visually, in Markdown, or in raw HTML — all three store the same clean HTML.
 _Avoid_: Content
 
 **Feed**: the home page list of Posts, newest first, loaded incrementally and filterable by date.
@@ -21,7 +21,7 @@ _Avoid_: Scroll position, history
 
 **Archive Filter**: narrowing the Feed by year / month / day.
 
-**Video**: a media artifact attached to a Post. It has a lifecycle: uploaded/queued → processing → processed, or failed. Playback uses HLS.
+**Video**: a media artifact attached to a Post. It has a lifecycle: uploaded/queued → processing → processed, or failed. Playback uses HLS. Because the raw upload is replaced by the HLS output, a Video is attached to the Post rather than written into the Post Body.
 _Avoid_: Media, movie, clip
 
 **Admin**: the single owner/author of the Blog. Authenticated by a cookie session derived from environment-variable credentials. There is exactly one admin.

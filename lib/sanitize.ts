@@ -13,7 +13,7 @@ const ALLOWED_TAGS = [
 ];
 
 const ALLOWED_ATTRIBUTES: sanitizeHtml.IOptions["allowedAttributes"] = {
-  a: ["href", "name", "target", "rel"],
+  a: ["href", "name", "target", "rel", "class"],
   img: ["src", "alt", "title", "width", "height", "loading"],
   iframe: [
     "src",
@@ -27,9 +27,11 @@ const ALLOWED_ATTRIBUTES: sanitizeHtml.IOptions["allowedAttributes"] = {
     "scrolling",
   ],
   code: ["class"],
+  pre: ["class"],
   video: ["src", "controls", "width", "height", "poster", "preload", "playsinline"],
   source: ["src", "type"],
   table: ["border", "cellpadding", "cellspacing"],
+  ol: ["start", "reversed", "type"],
   td: ["colspan", "rowspan"],
   th: ["colspan", "rowspan"],
 };

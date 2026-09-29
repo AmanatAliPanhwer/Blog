@@ -28,6 +28,14 @@ ADMIN_PASSWORD=your-password
 SESSION_SECRET=random-secret
 ```
 
+Optional — override the upload size limits (bytes). Defaults: 10 MB for
+images, 256 MB for videos.
+
+```
+MAX_IMAGE_UPLOAD_BYTES=10485760
+MAX_VIDEO_UPLOAD_BYTES=268435456
+```
+
 ### Development
 
 ```bash
@@ -47,6 +55,8 @@ npm start
 
 - Admin authentication with session cookies
 - Create, edit, delete blog posts
+- Rich text editor with Visual, Markdown, and HTML source modes
+- Drag-and-drop or paste image uploads inline in the body
 - Image upload & lightbox viewer
 - Video upload with HLS adaptive streaming
 - Infinite scroll pagination
